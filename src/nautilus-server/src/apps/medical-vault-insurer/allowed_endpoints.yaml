@@ -1,0 +1,7 @@
+# External endpoints that the enclave is allowed to access.
+# Update this file with the actual endpoints needed for your medical vault insurer application.
+endpoints:
+  # Walrus blob storage (for FHIR bundle storage/retrieval)
+  - "aggregator.walrus-testnet.walrus.space"
+  - "publisher.walrus-testnet.walrus.space"
+  - "openrouter.ai/api/v1/chat/completions"
