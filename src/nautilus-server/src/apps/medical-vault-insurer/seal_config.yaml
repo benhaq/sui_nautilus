@@ -14,4 +14,4 @@ public_keys:
 
 # Move package containing seal_approve_enclaves, replace with your own APP_PACKAGE_ID.
 # This is the package ID from move/medical-vault-insurer after publishing.
-package_id: "0x0000000000000000000000000000000000000000000000000000000000000000"
+package_id: "0x5114530c1fc03da3c502cc0036540464b94683af900ac788a47d76aa2adba856"

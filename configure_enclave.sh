@@ -50,12 +50,12 @@ fi
 ############################
 # Configurable Defaults
 ############################
-# Sets the region by default to us-east-1
-REGION="${REGION:-us-east-1}"
+# Sets the region by default to ap-southeast-1
+REGION="${REGION:-ap-southeast-1}"
 export AWS_DEFAULT_REGION="$REGION"
 
-# The default AMI for us-east-1. Change this if your region is different.
-AMI_ID="${AMI_ID:-ami-085ad6ae776d8f09c}"
+# The default AMI for ap-southeast-1.
+AMI_ID="${AMI_ID:-ami-0126eb82b7f60eb93}"
 
 # Environment variable name for our secret; default is 'API_KEY'
 API_ENV_VAR_NAME="${API_ENV_VAR_NAME:-API_KEY}"
@@ -131,11 +131,18 @@ fi
 #########################################
 # Decide about secrets (3 scenarios)
 #########################################
-# Check if this is the seal example - skip AWS secret prompts entirely
-if [[ "$ENCLAVE_APP" == "seal-example" ]]; then
-    echo "Seal example detected. Configuring without AWS secrets..."
+# Check if this is a Seal-based app - skip AWS secret prompts entirely
+# These apps use Seal for secret management, not AWS Secrets Manager
+if [[ "$ENCLAVE_APP" == "seal-example" ]] || [[ "$ENCLAVE_APP" == "medical-vault-insurer" ]]; then
+    echo "$ENCLAVE_APP detected. Configuring without AWS secrets (uses Seal/environment variables)..."
     USE_SECRET="n"
-    IS_SEAL_EXAMPLE=true
+    IS_SEAL_APP=true
+
+    # Set the correct environment variable name for this app
+    if [[ "$ENCLAVE_APP" == "medical-vault-insurer" ]]; then
+        API_ENV_VAR_NAME="OPENROUTER_API_KEY"
+        echo "Using API_ENV_VAR_NAME=$API_ENV_VAR_NAME for medical-vault-insurer"
+    fi
 else
     read -p "Do you want to use a secret? (y/n): " USE_SECRET
 
@@ -389,9 +396,9 @@ else
         sed -i '/echo.*secrets\.json/d' expose_enclave.sh 2>/dev/null || true
     fi
     
-    # Handle seal example specifically
-    if [ "$IS_SEAL_EXAMPLE" = true ]; then
-        echo "Configuring seal example..."
+    # Handle seal-based apps specifically
+    if [ "$IS_SEAL_APP" = true ]; then
+        echo "Configuring seal-based app..."
         
         # Add empty secrets.json (required by run.sh which waits for it on VSOCK)
         if [[ "$(uname)" == "Darwin" ]]; then
@@ -459,8 +466,8 @@ sudo systemctl start docker && sudo systemctl enable docker
 sudo systemctl enable nitro-enclaves-vsock-proxy.service
 EOF
 
-# Add Rust installation for seal example only
-if [ "$IS_SEAL_EXAMPLE" = true ]; then
+# Add Rust installation for seal-based apps only
+if [ "$IS_SEAL_APP" = true ]; then
     cat <<'EOF' >> user-data.sh
 
 # Install Rust and cargo for seal example
@@ -578,7 +585,7 @@ rm "$tmp_traffic"
 echo "updated run.sh"
 
 # Add seal-specific vsock listener for port 3001
-if [ "$IS_SEAL_EXAMPLE" = true ]; then
+if [ "$IS_SEAL_APP" = true ]; then
     echo "Adding seal-specific port 3001 vsock listener to run.sh..."
     if [[ "$(uname)" == "Darwin" ]]; then
         sed -i '' '/socat VSOCK-LISTEN:3000,reuseaddr,fork TCP:localhost:3000 &/a\
@@ -599,18 +606,39 @@ fi
 ############################
 SECURITY_GROUP_NAME="instance-script-sg"
 
-SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
-  --region "$REGION" \
-  --group-names "$SECURITY_GROUP_NAME" \
-  --query "SecurityGroups[0].GroupId" \
-  --output text 2>/dev/null)
+# Allow VPC_ID to be passed from environment (set by Terraform)
+VPC_ID="${VPC_ID:-}"
+
+# Try to find existing security group
+if [ -n "$VPC_ID" ]; then
+    # Look for security group in specific VPC
+    SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
+      --region "$REGION" \
+      --filters "Name=group-name,Values=$SECURITY_GROUP_NAME" "Name=vpc-id,Values=$VPC_ID" \
+      --query "SecurityGroups[0].GroupId" \
+      --output text 2>/dev/null)
+else
+    # Fallback to looking in default VPC (may fail if no default VPC)
+    SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
+      --region "$REGION" \
+      --group-names "$SECURITY_GROUP_NAME" \
+      --query "SecurityGroups[0].GroupId" \
+      --output text 2>/dev/null)
+fi
 
 if [ "$SECURITY_GROUP_ID" = "None" ] || [ -z "$SECURITY_GROUP_ID" ]; then
-  echo "Creating security group $SECURITY_GROUP_NAME..."
+  echo "Creating security group $SECURITY_GROUP_NAME in VPC $VPC_ID..."
+  if [ -z "$VPC_ID" ]; then
+    echo "Error: VPC_ID not set and no default VPC found. Please set VPC_ID environment variable."
+    echo "Example: export VPC_ID=$(terraform output -raw vpc_id 2>/dev/null || echo "vpc-xxx")"
+    exit 1
+  fi
+  
   SECURITY_GROUP_ID=$(aws ec2 create-security-group \
     --region "$REGION" \
     --group-name "$SECURITY_GROUP_NAME" \
     --description "Security group allowing SSH (22), HTTPS (443), and port 3000" \
+    --vpc-id "$VPC_ID" \
     --query "GroupId" --output text)
 
   # Ensure that the security group is created successfully
@@ -631,16 +659,33 @@ else
   echo "Using existing security group $SECURITY_GROUP_NAME ($SECURITY_GROUP_ID)"
 fi
 
+# Output the security group ID for use in subsequent commands
+echo "SECURITY_GROUP_ID=$SECURITY_GROUP_ID"
+
+############################
+# Get Subnet ID
+############################
+# Allow SUBNET_ID to be passed from environment (set by Terraform)
+SUBNET_ID="${SUBNET_ID:-}"
+if [ -z "$SUBNET_ID" ]; then
+    echo "Error: SUBNET_ID not set. Please export SUBNET_ID=<subnet-id>"
+    echo "Example: export SUBNET_ID=$(terraform output -raw subnet_id 2>/dev/null || echo "subnet-xxx")"
+    exit 1
+fi
+
 ############################
 # Launch EC2
 ############################
 echo "Launching EC2 instance with Nitro Enclaves enabled..."
+echo "Using subnet: $SUBNET_ID"
+echo "Using security group: $SECURITY_GROUP_ID"
 
 INSTANCE_ID=$(aws ec2 run-instances \
   --region "$REGION" \
   --image-id "$AMI_ID" \
   --instance-type m5.xlarge \
   --key-name "$KEY_PAIR" \
+  --subnet-id "$SUBNET_ID" \
   --user-data file://user-data.sh \
   --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":200}}]' \
   --enclave-options Enabled=true \

@@ -17,12 +17,8 @@
 /// This module handles step 4 - validating and attesting FHIR bundle references.
 
 module medical_vault::validator {
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{TxContext};
-    use sui::transfer;
     use sui::event;
     use sui::clock::{Self, Clock};
-    use std::vector;
     use enclave::enclave::{Enclave, verify_signature};
 
     // ============================================
@@ -293,7 +289,7 @@ module medical_vault::validator {
 
     /// Validate a FHIR bundle for insurance claim processing
     /// Simplified entry for claim-specific workflows
-    public entry fun validate_claim_bundle(
+    public fun validate_claim_bundle(
         walrus_blob_id: u256,
         semantic_hash: vector<u8>,
         patient_id: vector<u8>,

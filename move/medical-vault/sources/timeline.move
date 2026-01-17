@@ -28,7 +28,7 @@ module medical_vault::timeline {
     use sui::clock::Clock;
     use std::string::{Self, String};
     use std::vector;
-    use enclave::enclave::{Enclave, verify_signature};
+    use enclave::enclave::{Self, Enclave, verify_signature};
     use medical_vault::seal_whitelist::{Self, SealWhitelist};
 
     // ============================================
@@ -190,6 +190,25 @@ module medical_vault::timeline {
         scope: u8,
         timestamp: u64,
     }
+    // ============================================
+    // Type Witness
+    // ============================================
+
+    public struct TIMELINE has drop {}
+
+    fun init(otw: TIMELINE, ctx: &mut TxContext) {
+        let cap = enclave::new_cap(otw, ctx);
+
+        cap.create_enclave_config(
+            b"weather enclave".to_string(),
+            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr0
+            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr1
+            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr2
+            ctx,
+        );
+
+        transfer::public_transfer(cap, ctx.sender())
+    }
 
     // ============================================
     // Entry Functions (Nautilus Intent Pattern)
@@ -202,7 +221,7 @@ module medical_vault::timeline {
     /// 2. Off-chain: Upload to Walrus → get blob_id
     /// 3. Off-chain: Compute content_hash (SHA3-256)
     /// 4. On-chain: Call this function with metadata only
-    entry fun create_entry(
+    entry fun create_entry<T>(
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
         entry_type: u8,
@@ -215,7 +234,7 @@ module medical_vault::timeline {
         walrus_blob_id: vector<u8>,
         timestamp_ms: u64,
         signature: vector<u8>,
-        enclave: &Enclave<Timeline>,
+        enclave: &Enclave<T>,
         _clock: &Clock,
         ctx: &mut TxContext,
     ) {
@@ -281,7 +300,7 @@ module medical_vault::timeline {
     }
 
     /// Verify an existing timeline entry (for externally created entries)
-    entry fun verify_entry(
+    entry fun verify_entry<T>(
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
         entry_type: u8,
@@ -291,7 +310,7 @@ module medical_vault::timeline {
         walrus_blob_id: vector<u8>,
         timestamp_ms: u64,
         signature: vector<u8>,
-        enclave: &Enclave<Timeline>,
+        enclave: &Enclave<T>,
         _clock: &Clock,
         ctx: &mut TxContext,
     ) {
@@ -454,7 +473,7 @@ module medical_vault::timeline {
             timestamp_ms,
         };
 
-        assert!(dof::exists_<TimelineEntryKey>(seal_whitelist::uid(whitelist), key.clone()), E_ENTRY_NOT_FOUND);
+        assert!(dof::exists_<TimelineEntryKey>(seal_whitelist::uid(whitelist), key), E_ENTRY_NOT_FOUND);
 
         let entry: TimelineEntry = dof::remove(seal_whitelist::uid_mut(whitelist), key);
         
@@ -584,10 +603,4 @@ module medical_vault::timeline {
     public fun summary_specialties(summary: &TimelineSummary): &vector<String> {
         &summary.specialties
     }
-
-    // ============================================
-    // Type Witness
-    // ============================================
-
-    public struct Timeline has drop {}
 }

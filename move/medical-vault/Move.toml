@@ -2,6 +2,7 @@
 name = "medical_vault"
 version = "0.1.0"
 edition = "2024"
+published-at = "0x0"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "ad937889f2f99bc666b05aaeadccb0d3d7d1f863" }

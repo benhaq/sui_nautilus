@@ -4,6 +4,8 @@
 use anyhow::Result;
 use axum::{routing::get, routing::post, Router};
 use fastcrypto::{ed25519::Ed25519KeyPair, traits::KeyPair};
+#[cfg(feature = "medical-vault-insurer")]
+use nautilus_server::app::load_api_key_from_env;
 use nautilus_server::app::process_data;
 use nautilus_server::common::{get_attestation, health_check};
 use nautilus_server::AppState;
@@ -19,6 +21,10 @@ async fn main() -> Result<()> {
     let api_key = String::new();
 
     let state = Arc::new(AppState { eph_kp, api_key });
+
+    // Load API key from environment for Oyster CVM deployments
+    #[cfg(feature = "medical-vault-insurer")]
+    load_api_key_from_env().await;
 
     // Spawn host-only init server if medical-vault-insurer feature is enabled
     #[cfg(feature = "medical-vault-insurer")]
