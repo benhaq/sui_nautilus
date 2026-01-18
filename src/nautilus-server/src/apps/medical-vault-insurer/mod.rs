@@ -70,7 +70,7 @@ pub async fn process_data(
 
     // Create LLM service with the provisioned API key
     let llm_service = FhirLlmService::new(
-        fhir::OpenRouterConfig::new(api_key.clone(), "openai/gpt-4.2".to_string())
+        fhir::OpenRouterConfig::new(api_key.clone(), "openai/gpt-5.2".to_string())
     );
 
     // Build FHIR request

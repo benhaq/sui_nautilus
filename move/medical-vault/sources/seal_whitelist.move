@@ -22,6 +22,7 @@ module medical_vault::seal_whitelist {
     const ROLE_OWNER: u8 = 0;      // Read/write access
     const ROLE_DOCTOR: u8 = 1;     // Read/write access
     const ROLE_MEMBER: u8 = 2;     // Read-only access
+    const ROLE_PATIENT: u8 = 3;
     const ROLE_NONE: u8 = 255;     // No access
 
     /// Global registry to track user access to whitelists

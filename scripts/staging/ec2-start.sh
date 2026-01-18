@@ -225,16 +225,16 @@ pkill -f "vsock-proxy" 2>/dev/null || true
 sleep 2
 
 # Get vsock-proxy endpoints from config
-WALRUS_ENDPOINT="${WALRUS_AGGREGATOR:-aggregator.walrus-testnet.walrus.space:443}"
-SUI_ENDPOINT="${SUI_RPC_TARGET:-fullnode.testnet.sui.io:443}"
-OPENROUTER_ENDPOINT="${OPENROUTER_TARGET:-openrouter.ai:443}"
+WALRUS_HOST=$(echo "${WALRUS_AGGREGATOR:-aggregator.walrus-testnet.walrus.space:443}" | cut -d: -f1)
+SUI_HOST=$(echo "${SUI_RPC_TARGET:-fullnode.testnet.sui.io:443}" | cut -d: -f1)
+OPENROUTER_HOST=$(echo "${OPENROUTER_TARGET:-openrouter.ai:443}" | cut -d: -f1)
 
 echo "=== Updating vsock-proxy allowlist ==="
 sudo bash -c 'cat > /etc/nitro_enclaves/vsock-proxy.yaml << ALLOWLIST
 allowlist:
-- {address: '$WALRUS_ENDPOINT', port: 443}
-- {address: '$SUI_ENDPOINT', port: 443}
-- {address: '$OPENROUTER_ENDPOINT', port: 443}
+- {address: '$WALRUS_HOST', port: 443}
+- {address: '$SUI_HOST', port: 443}
+- {address: '$OPENROUTER_HOST', port: 443}
 ALLOWLIST'
 
 echo "=== Starting port forwarding (TCP -> VSOCK) ==="
@@ -243,13 +243,13 @@ nohup python3 /home/ec2-user/tcp-vsock-forwarder.py 3000 $CID 3000 > /tmp/forwar
 nohup python3 /home/ec2-user/tcp-vsock-forwarder.py 3001 $CID 3001 > /tmp/forwarder-3001.log 2>&1 &
 
 echo "=== Starting vsock-proxy for Walrus (port 8101) ==="
-nohup vsock-proxy 8101 $WALRUS_ENDPOINT --config /etc/nitro_enclaves/vsock-proxy.yaml > /tmp/vsock-proxy-walrus.log 2>&1 &
+nohup vsock-proxy 8101 $WALRUS_HOST 443 --config /etc/nitro_enclaves/vsock-proxy.yaml > /tmp/vsock-proxy-walrus.log 2>&1 &
 
 echo "=== Starting vsock-proxy for Sui RPC (port 8102) ==="
-nohup vsock-proxy 8102 $SUI_ENDPOINT --config /etc/nitro_enclaves/vsock-proxy.yaml > /tmp/vsock-proxy-sui.log 2>&1 &
+nohup vsock-proxy 8102 $SUI_HOST 443 --config /etc/nitro_enclaves/vsock-proxy.yaml > /tmp/vsock-proxy-sui.log 2>&1 &
 
 echo "=== Starting vsock-proxy for OpenRouter (port 8103) ==="
-nohup vsock-proxy 8103 $OPENROUTER_ENDPOINT --config /etc/nitro_enclaves/vsock-proxy.yaml > /tmp/vsock-proxy-openrouter.log 2>&1 &
+nohup vsock-proxy 8103 $OPENROUTER_HOST 443 --config /etc/nitro_enclaves/vsock-proxy.yaml > /tmp/vsock-proxy-openrouter.log 2>&1 &
 
 for i in {1..20}; do
     RESPONSE=$(curl -s --max-time 3 http://localhost:3000/ 2>/dev/null)
