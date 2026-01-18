@@ -1,0 +1,106 @@
+.user-whitelists {
+  margin-top: 2rem;
+}
+
+.user-whitelists h2 {
+  font-size: 1.75rem;
+  margin-bottom: 2rem;
+}
+
+.whitelist-group {
+  margin-bottom: 2.5rem;
+}
+
+.whitelist-group h3 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.group-description {
+  font-size: 0.875rem;
+  color: #888;
+  margin-bottom: 1rem;
+}
+
+.whitelist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.whitelist-card {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.whitelist-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #333;
+}
+
+.card-header h4 {
+  font-size: 1.125rem;
+  margin: 0;
+  flex: 1;
+}
+
+.role-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+}
+
+.card-info {
+  margin-bottom: 1rem;
+}
+
+.card-info p {
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+  font-family: monospace;
+}
+
+.permissions {
+  margin-top: 1rem;
+}
+
+.permission-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tag {
+  padding: 0.25rem 0.75rem;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .whitelist-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  .card-header {
+    border-bottom-color: #e0e0e0;
+  }
+  
+  .tag {
+    background-color: #e0e0e0;
+  }
+}

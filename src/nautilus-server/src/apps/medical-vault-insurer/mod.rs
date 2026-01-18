@@ -54,12 +54,12 @@ pub async fn process_data(
     Json(request): Json<FhirConversionRequest>,
 ) -> Result<Json<FhirConversionResponse>, EnclaveError> {
     // API key loaded from what was set during bootstrap.
-    let api_key_guard = OPENROUTER_API_KEY.read().await;
-    let api_key = api_key_guard.as_ref().ok_or_else(|| {
-        EnclaveError::GenericError(
-            "OpenRouter API key not initialized. Please complete key load first.".to_string(),
-        )
-    })?;
+    // let api_key_guard = OPENROUTER_API_KEY.read().await;
+    // let api_key = api_key_guard.as_ref().ok_or_else(|| {
+    //     EnclaveError::GenericError(
+    //         "OpenRouter API key not initialized. Please complete key load first.".to_string(),
+    //     )
+    // })?;
 
     let current_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -70,7 +70,7 @@ pub async fn process_data(
 
     // Create LLM service with the provisioned API key
     let llm_service = FhirLlmService::new(
-        fhir::OpenRouterConfig::new(api_key.clone(), "openai/gpt-5.2".to_string())
+        fhir::OpenRouterConfig::new("sk-or-v1-...".to_string(), "openai/gpt-5.2".to_string())
     );
 
     // Build FHIR request

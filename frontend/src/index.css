@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+@import '@mysten/dapp-kit/dist/index.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border-light dark:border-border-dark;
+  }
+  
+  body {
+    @apply bg-background-light dark:bg-background-dark text-text-light dark:text-text-dark font-body;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+}
+
+@layer utilities {
+  /* Respect reduced motion preferences */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Custom styling for dapp-kit ConnectButton */
+@layer components {
+  [data-dapp-kit-connect-button] {
+    @apply flex items-center px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-lg transition-colors duration-200 cursor-pointer shadow-sm font-body text-sm font-medium;
+  }
+  
+  [data-dapp-kit-connect-modal] {
+    @apply font-body;
+  }
+}
