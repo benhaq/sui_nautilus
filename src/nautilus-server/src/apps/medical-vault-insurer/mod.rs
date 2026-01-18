@@ -4,12 +4,12 @@
 pub mod types;
 pub mod endpoints;
 pub mod fhir;
-
+pub mod walrus;
+pub mod seal;
 pub use types::*;
-pub use endpoints::{complete_seal_key_load, init_seal_key_load, provision_openrouter_api_key, create_ptb, spawn_host_init_server};
+pub use endpoints::{complete_seal_key_load, init_seal_key_load, provision_openrouter_api_key, create_ptb, spawn_host_init_server, process_create_timeline_intent};
 pub use fhir::{compute_semantic_hash, extract_resource_types, FhirBuildRequest, FhirLlmService, PatientContext};
 
-use crate::app::endpoints::OPENROUTER_API_KEY;
 use crate::AppState;
 use crate::EnclaveError;
 use axum::extract::State;

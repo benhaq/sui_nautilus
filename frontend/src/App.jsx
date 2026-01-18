@@ -13,6 +13,7 @@ import RecordsPage from './pages/RecordsPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
 import IntroPage from './pages/IntroPage'
 import InsuranceClaimsPage from './pages/InsuranceClaimsPage'
+import SealWhitelistTest from './components/SealWhitelistTest'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,7 @@ function App() {
               {/* <CustomWalletProvider> */}
                 <Routes>
                   <Route path="/" element={<IntroPage />} />
+                  <Route path="/test-graphql" element={<SealWhitelistTest />} />
                   <Route path="/home" element={<Layout><HomePage /></Layout>} />
                   <Route path="/dashboard" element={<Layout><DashboardPage /></Layout>} />
                   <Route path="/records" element={<Layout><RecordsPage /></Layout>} />

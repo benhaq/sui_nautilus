@@ -2,10 +2,6 @@ module medical_vault::medical_record {
     use std::string::{Self, String};
     use sui::event;
     use sui::clock::{Self, Clock};
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
-
     use medical_vault::seal_whitelist::{Self, SealWhitelist, WhitelistAdminCap};
     
     /// Error codes
@@ -16,12 +12,6 @@ module medical_vault::medical_record {
     const E_NOT_DOCTOR: u64 = 5;
     const E_NO_VIEW_ACCESS: u64 = 6;
 
-    /// Document types
-    const DOC_TYPE_LAB_RESULT: u8 = 0;
-    const DOC_TYPE_IMAGING: u8 = 1;
-    const DOC_TYPE_DOCTOR_NOTES: u8 = 2;
-    const DOC_TYPE_PRESCRIPTION: u8 = 3;
-    const DOC_TYPE_OTHER: u8 = 4;
 
     /// Represents a medical record stored on Walrus
     public struct Record has key, store {
@@ -193,7 +183,7 @@ module medical_vault::medical_record {
     }
 
     /// Revoke a record (only the uploader doctor can revoke)
-    public entry fun revoke_record(
+    public fun revoke_record(
         record: &mut Record,
         clock: &Clock,
         ctx: &mut TxContext

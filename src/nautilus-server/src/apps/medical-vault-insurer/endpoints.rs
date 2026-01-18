@@ -1,9 +1,23 @@
-use super::*;
-use crate::common::IntentMessage;
+use crate::apps::medical_vault_insurer::{
+    walrus::download_walrus_blob,
+    seal::decrypt_content,
+    types::{
+        IntentScope, CreateTimelineIntentRequest, TimelineEntryIntentPayload,
+        InitKeyLoadRequest, InitKeyLoadResponse,
+        CompleteKeyLoadRequest, CompleteKeyLoadResponse,
+        ProvisionOpenRouterApiKeyRequest, ProvisionOpenRouterApiKeyResponse,
+        SealConfig,    
+    },
+};
+use crate::common::{IntentMessage, ProcessedDataResponse, to_signed_response};
+use crate::{AppState, EnclaveError};
 use axum::{
+    extract::State,
+    Json,
     routing::{get, post},
     Router,
 };
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tracing::info;
 
@@ -14,6 +28,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use fastcrypto::ed25519::Ed25519KeyPair;
 use fastcrypto::encoding::{Base64, Encoding, Hex};
 use fastcrypto::groups::bls12381::G1Element;
+use fastcrypto::hash::{HashFunction, Sha3_256};
 use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
 use rand::thread_rng;
 use seal_sdk::types::{ElGamalPublicKey, ElgamalVerificationKey, FetchKeyRequest};
@@ -229,7 +244,7 @@ pub async fn create_ptb(
     let signing_payload = EnclavePKPayload {
         pk: wallet_pk.clone(),
     };
-    let intent_msg = IntentMessage::new(signing_payload, timestamp, 1); // 1 = WalletPK intent for seal_approve_enclaves
+    let intent_msg = IntentMessage::new(signing_payload, timestamp, IntentScope::WalletPK as u8); // 1 = WalletPK intent for seal_approve_enclaves
 
     // Sign with enclave ephemeral keypair.
     let signing_bytes = bcs::to_bytes(&intent_msg)?;
@@ -280,6 +295,98 @@ pub async fn create_ptb(
 
     Ok(ProgrammableTransaction { inputs, commands })
 }
+
+
+/// Compute semantic hash from decrypted content (FHIR bundle JSON)
+fn compute_semantic_hash_from_content(content: &[u8]) -> Result<String, EnclaveError> {
+    // Parse the JSON content
+    let bundle: serde_json::Value = serde_json::from_slice(content)
+        .map_err(|e| EnclaveError::GenericError(format!("Failed to parse JSON content: {e}")))?;
+    
+    // Canonicalize using JCS-style sorted, indented JSON
+    let canonical = serde_json::to_string_pretty(&bundle)
+        .map_err(|e| EnclaveError::GenericError(format!("Canonicalization failed: {e}")))?;
+    
+    // Compute SHA3-256 hash
+    let mut hasher = Sha3_256::default();
+    hasher.update(canonical.as_bytes());
+    let result = hasher.finalize();
+    
+    Ok(Hex::encode(result))
+}
+
+// ============================================
+// Timeline Entry Intent Endpoint
+// ============================================
+
+
+/// Process a create timeline entry intent request:
+/// 1. Download encrypted blob from Walrus
+/// 2. Decrypt using cached Seal keys
+/// 3. Compute semantic hash from decrypted content
+/// 4. Compare with expected semantic hash
+/// 5. Return signed intent response
+pub async fn process_create_timeline_intent(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<CreateTimelineIntentRequest>,
+) -> Result<Json<ProcessedDataResponse<IntentMessage<TimelineEntryIntentPayload>>>, EnclaveError> {
+    let blob_id_str = String::from_utf8_lossy(&request.walrus_blob_id).to_string();
+    info!("Processing create timeline intent request for blob: {}", blob_id_str);
+    
+    let current_timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| EnclaveError::GenericError(format!("Failed to get current timestamp: {e}")))?
+        .as_millis() as u64;
+    
+    // Step 1: Download blob from Walrus
+    let blob_content = match download_walrus_blob(&blob_id_str).await {
+        Ok(content) => content,
+        Err(e) => {            
+            return Err(EnclaveError::WalrusError(
+                format!("Failed to download Walrus blob: {}", e),
+            ));
+        }
+    };
+    
+    // Step 2: Decrypt using cached Seal keys
+    let decrypted_content = decrypt_content(
+        &blob_content,
+        Address::from_bytes(&request.policy_id)
+            .map_err(|e| EnclaveError::GenericError(format!("Invalid policy ID: {}", e)))?,
+        &state,
+    ).await?;
+
+    // Step 3: Compute semantic hash from decrypted content
+    let computed_hash = match compute_semantic_hash_from_content(&decrypted_content) {
+        Ok(hash) => hash,
+        Err(e) => {
+            return Err(EnclaveError::GenericError(
+                format!("Failed to compute semantic hash: {}", e),
+            ));
+        }
+    };
+    
+    // Step 4: Compare with expected semantic hash
+    let hash_valid = computed_hash == request.expected_semantic_hash;
+    
+    if !hash_valid {
+        return Err(EnclaveError::GenericError(
+            "Semantic hash mismatch".to_string(),
+        ));
+    }
+    
+    Ok(Json(to_signed_response(
+        &state.eph_kp,
+        TimelineEntryIntentPayload {
+            patient_ref_bytes: request.patient_ref_bytes.clone(),
+            walrus_blob_id: request.walrus_blob_id.clone(),
+            content_hash: request.content_hash.clone(),
+        },
+        current_timestamp,
+        IntentScope::TimelineEntry as u8,
+    )))
+}
+
 
 /// Spawn a separate server on localhost:3001 for host-only bootstrap access.
 pub async fn spawn_host_init_server(state: Arc<AppState>) -> Result<(), EnclaveError> {

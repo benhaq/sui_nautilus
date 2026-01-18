@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 // Export custom hooks
 export * from './useWhitelists'
+export * from './useSealWhitelistGraphQL'
 
 /**
  * Custom hook for managing dark mode

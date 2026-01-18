@@ -26,13 +26,27 @@ module medical_vault::timeline {
     use sui::coin::{Self, Coin};
     use sui::balance::{Self, Balance};
     use sui::sui::SUI;
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
     use sui::hash;
     use sui::bcs;
+    use sui::ed25519;
     use std::string::{Self, String};
-    use std::vector;
     use medical_vault::seal_whitelist::{Self, SealWhitelist};
+    use enclave::enclave::{Self, Enclave, create_intent_message};
+
+    // ============================================
+    // Intent Constants (for enclave signature verification)
+    // ============================================
+
+    /// Intent for creating a timeline entry
+    const ENTRY_CREATE_INTENT: u8 = 10;
+    /// Intent for verifying a timeline entry
+    const ENTRY_VERIFY_INTENT: u8 = 11;
+    /// Intent for creating a deposit pool
+    const POOL_CREATE_INTENT: u8 = 12;
+    /// Intent for cancelling a deposit pool
+    const POOL_CANCEL_INTENT: u8 = 13;
+    /// Intent for patient withdrawal from pool
+    const POOL_WITHDRAW_INTENT: u8 = 14;
 
     // ============================================
     // Error Codes
@@ -44,7 +58,6 @@ module medical_vault::timeline {
     const E_ALREADY_REVOKED: u64 = 3;
     const E_UNAUTHORIZED_ACCESS: u64 = 4;
     const E_EMPTY_PATIENT_REF: u64 = 5;
-    const E_INVALID_VISIT_DATE: u64 = 6;
     const E_ENTRY_NOT_FOUND: u64 = 7;
     const E_INVALID_WHITELIST: u64 = 8;
     const E_POOL_ALREADY_EXISTS: u64 = 9;
@@ -52,6 +65,38 @@ module medical_vault::timeline {
     const E_INVALID_PATIENT: u64 = 11;
     const E_UNAUTHORIZED_CREATOR: u64 = 12;
     const E_INVALID_DEPOSIT: u64 = 13;
+    const E_INVALID_ENCLAVE_SIGNATURE: u64 = 14;
+
+    // ============================================
+    // Intent Payload Structures (for enclave signature verification)
+    // ============================================
+
+    /// Payload for timeline entry creation intent
+    /// Contains only essential fields for on-chain verification
+    public struct TimelineEntryIntent has copy, drop {
+        patient_ref_bytes: vector<u8>,
+        walrus_blob_id: vector<u8>,
+        content_hash: vector<u8>,
+    }
+
+    /// Payload for pool creation intent
+    public struct PoolCreateIntent has copy, drop {
+        patient_ref_bytes: vector<u8>,
+        timestamp_ms: u64,
+        deposit_amount: u64,
+    }
+
+    /// Payload for pool cancellation intent
+    public struct PoolCancelIntent has copy, drop {
+        patient_ref_bytes: vector<u8>,
+        timestamp_ms: u64,
+    }
+
+    /// Payload for pool withdrawal intent (patient identity verification)
+    public struct PoolWithdrawIntent has copy, drop {
+        patient_ref_bytes: vector<u8>,
+        timestamp_ms: u64,
+    }
 
     // ============================================
     // Timeline Entry Type Constants
@@ -94,8 +139,6 @@ module medical_vault::timeline {
         patient_ref_bytes: vector<u8>,
         /// Type of entry (visit_summary, procedure, refill, note, etc.)
         entry_type: u8,
-        /// Date of visit (format: YYYY-MM-DD, no exact timestamp)
-        visit_date: String,
         /// Provider specialty (general category, not provider name)
         provider_specialty: String,
         /// Visit type (checkup, procedure, emergency, etc.)
@@ -138,7 +181,6 @@ module medical_vault::timeline {
         whitelist_id: ID,
         patient_ref_bytes: vector<u8>,
         timestamp_ms: u64,
-        visit_date: String,
         entry_type: u8,
     }
 
@@ -180,30 +222,45 @@ module medical_vault::timeline {
     // ============================================
 
     /// Create a new HIPAA Safe Harbor compliant timeline entry as dynamic field on SealWhitelist
-    /// 
+    /// Uses intent-based pattern with enclave signature verification
+    ///
     /// USAGE:
     /// 1. Off-chain: Generate entry content (non-PHI)
     /// 2. Off-chain: Upload to Walrus → get blob_id
     /// 3. Off-chain: Compute content_hash (SHA3-256)
-    /// 4. On-chain: Call this function with metadata only
+    /// 4. Off-chain: Request enclave to sign intent message with wallet public key
+    /// 5. On-chain: Call this function with metadata, signature, and enclave reference
     public fun create_entry(
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
         entry_type: u8,
-        visit_date: vector<u8>,
         provider_specialty: vector<u8>,
         visit_type: vector<u8>,
         status: vector<u8>,
         content_hash: vector<u8>,
         walrus_blob_id: vector<u8>,
         timestamp_ms: u64,
+        enclave: &Enclave<seal_whitelist::SEAL_WHITELIST>,
+        signature: vector<u8>,
         _clock: &Clock,
         ctx: &mut TxContext,
     ) {
         // Validate inputs
         assert!(vector::length(&patient_ref) > 0, E_EMPTY_PATIENT_REF);
-        assert!(vector::length(&visit_date) > 0, E_INVALID_VISIT_DATE);
         assert!(entry_type <= ENTRY_IMMUNIZATION, E_INVALID_ENTRY_TYPE);
+
+        // Verify enclave signature for intent-based authorization
+        let signing_payload = create_intent_message(
+            ENTRY_CREATE_INTENT,
+            timestamp_ms,
+            TimelineEntryIntent {
+                patient_ref_bytes: patient_ref,
+                walrus_blob_id,
+                content_hash,
+            },
+        );
+        let payload = bcs::to_bytes(&signing_payload);
+        assert!(ed25519::ed25519_verify(&signature, enclave::pk(enclave), &payload), E_INVALID_ENCLAVE_SIGNATURE);
 
         // Create dynamic field key using patient_ref bytes and timestamp
         let key = TimelineEntryKey {
@@ -216,7 +273,6 @@ module medical_vault::timeline {
             id: object::new(ctx),
             patient_ref_bytes: *&key.patient_ref_bytes,
             entry_type,
-            visit_date: string::utf8(visit_date),
             provider_specialty: string::utf8(provider_specialty),
             visit_type: string::utf8(visit_type),
             status: string::utf8(status),
@@ -232,37 +288,49 @@ module medical_vault::timeline {
         // Emit creation event
         event::emit(TimelineEntryCreated {
             whitelist_id: seal_whitelist::whitelist_id(whitelist),
-            patient_ref_bytes: *&key.patient_ref_bytes,
+            patient_ref_bytes: patient_ref,
             timestamp_ms,
-            visit_date: string::utf8(visit_date),
             entry_type,
         });
     }
 
     /// Verify an existing timeline entry (for externally created entries)
+    /// Uses intent-based pattern with enclave signature verification
     public fun verify_entry(
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
-        entry_type: u8,
-        visit_date: vector<u8>,
         content_hash: vector<u8>,
         walrus_blob_id: vector<u8>,
         timestamp_ms: u64,
-        _clock: &Clock,
+        enclave: &Enclave<seal_whitelist::SEAL_WHITELIST>,
+        signature: vector<u8>,
         ctx: &mut TxContext,
     ) {
         assert!(vector::length(&patient_ref) > 0, E_EMPTY_PATIENT_REF);
+
+        // Verify enclave signature for intent-based authorization
+        let signing_payload = create_intent_message(
+            ENTRY_VERIFY_INTENT,
+            timestamp_ms,
+            TimelineEntryIntent {
+                patient_ref_bytes: patient_ref,
+                walrus_blob_id,
+                content_hash,
+            },
+        );
+        let payload = bcs::to_bytes(&signing_payload);
+        assert!(ed25519::ed25519_verify(&signature, enclave::pk(enclave), &payload), E_INVALID_ENCLAVE_SIGNATURE);
 
         let key = TimelineEntryKey {
             patient_ref_bytes: patient_ref,
             timestamp_ms,
         };
 
+        // Create timeline entry with default values for fields not in intent
         let entry = TimelineEntry {
             id: object::new(ctx),
-            patient_ref_bytes: *&key.patient_ref_bytes,
-            entry_type,
-            visit_date: string::utf8(visit_date),
+            patient_ref_bytes: patient_ref,
+            entry_type: 0, // Default to visit_summary
             provider_specialty: string::utf8(b""),
             visit_type: string::utf8(b""),
             status: string::utf8(b"verified"),
@@ -276,21 +344,39 @@ module medical_vault::timeline {
 
         event::emit(TimelineEntryCreated {
             whitelist_id: seal_whitelist::whitelist_id(whitelist),
-            patient_ref_bytes: *&key.patient_ref_bytes,
+            patient_ref_bytes: patient_ref,
             timestamp_ms,
-            visit_date: string::utf8(visit_date),
-            entry_type,
+            entry_type: 0,
         });
     }
 
     /// Revoke a timeline entry (requires mutable access to whitelist)
+    /// Uses intent-based pattern with enclave signature verification
     entry fun revoke_entry(
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
+        content_hash: vector<u8>,
+        walrus_blob_id: vector<u8>,
         timestamp_ms: u64,
+        enclave: &Enclave<seal_whitelist::SEAL_WHITELIST>,
+        signature: vector<u8>,
         _clock: &Clock,
         _ctx: &mut TxContext,
     ) {
+        // Verify enclave signature for intent-based authorization
+        // Using same intent as entry creation for consistency
+        let signing_payload = create_intent_message(
+            ENTRY_CREATE_INTENT,
+            timestamp_ms,
+            TimelineEntryIntent {
+                patient_ref_bytes: patient_ref,
+                walrus_blob_id,
+                content_hash,
+            },
+        );
+        let payload = bcs::to_bytes(&signing_payload);
+        assert!(ed25519::ed25519_verify(&signature, enclave::pk(enclave), &payload), E_INVALID_ENCLAVE_SIGNATURE);
+
         let key = TimelineEntryKey {
             patient_ref_bytes: patient_ref,
             timestamp_ms,
@@ -318,6 +404,7 @@ module medical_vault::timeline {
     // ============================================
 
     /// Update status of TimelineEntry and create deposit pool with SUI deposit
+    /// Uses intent-based pattern with enclave signature verification
     /// Only creator can call this function
     /// Requires deposit amount > 0
     entry fun create_pool_and_deposit(
@@ -325,9 +412,29 @@ module medical_vault::timeline {
         patient_ref: vector<u8>,
         timestamp_ms: u64,
         deposit_coin: Coin<SUI>,
+        enclave: &Enclave<seal_whitelist::SEAL_WHITELIST>,
+        signature: vector<u8>,
         ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
+
+        // Get deposit amount for intent verification
+        let deposit_amount = coin::value(&deposit_coin);
+        assert!(deposit_amount > 0, E_INVALID_DEPOSIT);
+
+        // Verify enclave signature for intent-based authorization
+        let signing_payload = create_intent_message(
+            POOL_CREATE_INTENT,
+            timestamp_ms,
+            PoolCreateIntent {
+                patient_ref_bytes: patient_ref,
+                timestamp_ms,
+                deposit_amount,
+            },
+        );
+        let payload = bcs::to_bytes(&signing_payload);
+        assert!(ed25519::ed25519_verify(&signature, enclave::pk(enclave), &payload), E_INVALID_ENCLAVE_SIGNATURE);
+
         let key = TimelineEntryKey {
             patient_ref_bytes: patient_ref,
             timestamp_ms,
@@ -341,10 +448,6 @@ module medical_vault::timeline {
 
         // Check if entry is not revoked
         assert!(!entry.revoked, E_ALREADY_REVOKED);
-
-        // Validate deposit amount
-        let deposit_amount = coin::value(&deposit_coin);
-        assert!(deposit_amount > 0, E_INVALID_DEPOSIT);
 
         // Update status
         entry.status = string::utf8(b"verified");
@@ -379,11 +482,14 @@ module medical_vault::timeline {
     }
 
     /// Patient withdraws from deposit pool
+    /// Uses intent-based pattern with enclave signature verification
     /// Validates patient using hash of their address
     entry fun withdraw_by_patient(
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
         timestamp_ms: u64,
+        enclave: &Enclave<seal_whitelist::SEAL_WHITELIST>,
+        signature: vector<u8>,
         ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
@@ -391,6 +497,18 @@ module medical_vault::timeline {
             patient_ref_bytes: patient_ref,
             timestamp_ms,
         };
+
+        // Verify enclave signature for intent-based authorization
+        let signing_payload = create_intent_message(
+            POOL_WITHDRAW_INTENT,
+            timestamp_ms,
+            PoolWithdrawIntent {
+                patient_ref_bytes: patient_ref,
+                timestamp_ms,
+            },
+        );
+        let payload = bcs::to_bytes(&signing_payload);
+        assert!(ed25519::ed25519_verify(&signature, enclave::pk(enclave), &payload), E_INVALID_ENCLAVE_SIGNATURE);
 
         // Check if entry exists and get patient_ref for validation
         assert!(dof::exists_<TimelineEntryKey>(seal_whitelist::uid(whitelist), key), E_ENTRY_NOT_FOUND);
@@ -429,10 +547,13 @@ module medical_vault::timeline {
     }
 
     /// Creator cancels deposit pool and refunds
+    /// Uses intent-based pattern with enclave signature verification
     entry fun cancel_pool_and_refund_creator(
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
         timestamp_ms: u64,
+        enclave: &Enclave<seal_whitelist::SEAL_WHITELIST>,
+        signature: vector<u8>,
         ctx: &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
@@ -440,6 +561,18 @@ module medical_vault::timeline {
             patient_ref_bytes: patient_ref,
             timestamp_ms,
         };
+
+        // Verify enclave signature for intent-based authorization
+        let signing_payload = create_intent_message(
+            POOL_CANCEL_INTENT,
+            timestamp_ms,
+            PoolCancelIntent {
+                patient_ref_bytes: patient_ref,
+                timestamp_ms,
+            },
+        );
+        let payload = bcs::to_bytes(&signing_payload);
+        assert!(ed25519::ed25519_verify(&signature, enclave::pk(enclave), &payload), E_INVALID_ENCLAVE_SIGNATURE);
 
         // Check if entry exists
         assert!(dof::exists_<TimelineEntryKey>(seal_whitelist::uid(whitelist), key), E_ENTRY_NOT_FOUND);
@@ -509,10 +642,6 @@ module medical_vault::timeline {
 
     public fun entry_type(entry: &TimelineEntry): u8 {
         entry.entry_type
-    }
-
-    public fun visit_date(entry: &TimelineEntry): &String {
-        &entry.visit_date
     }
 
     public fun provider_specialty(entry: &TimelineEntry): &String {

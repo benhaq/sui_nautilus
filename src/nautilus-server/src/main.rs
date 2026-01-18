@@ -5,7 +5,7 @@ use anyhow::Result;
 use axum::{routing::get, routing::post, Router};
 use fastcrypto::{ed25519::Ed25519KeyPair, traits::KeyPair};
 #[cfg(feature = "medical-vault-insurer")]
-use nautilus_server::apps::medical_vault_insurer::{process_data, spawn_host_init_server};
+use nautilus_server::apps::medical_vault_insurer::{process_data, process_create_timeline_intent, spawn_host_init_server};
 #[cfg(not(feature = "medical-vault-insurer"))]
 use nautilus_server::app::process_data;
 use nautilus_server::common::{get_attestation, health_check};
@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
         .route("/", get(ping))
         .route("/get_attestation", get(get_attestation))
         .route("/process_data", post(process_data))
+        .route("/process_create_timeline_intent", post(process_create_timeline_intent))
         .route("/health_check", get(health_check))
         .with_state(state)
         .layer(cors);

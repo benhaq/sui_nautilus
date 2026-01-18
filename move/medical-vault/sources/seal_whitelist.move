@@ -4,6 +4,7 @@ module medical_vault::seal_whitelist {
     use sui::ed25519;
     use sui::hash::blake2b256;
     use std::string::{Self, String};
+    use sui::address;
     use sui::event;
     use sui::clock::{Self, Clock};
     use sui::table::{Self, Table};
@@ -180,6 +181,7 @@ module medical_vault::seal_whitelist {
         registry: &mut WhitelistRegistry,
         name: vector<u8>,
         patient: address,
+        enclave: &Enclave<SEAL_WHITELIST>,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
@@ -193,7 +195,7 @@ module medical_vault::seal_whitelist {
             owner: sender,
             patient,
             doctors: vector::empty(),
-            members: vector::empty(),
+            members: vector[address::from_bytes(*enclave.pk())],
             records: vector::empty(),
             created_at: clock::timestamp_ms(clock),
         };
@@ -419,10 +421,9 @@ module medical_vault::seal_whitelist {
     /// Seal approve entry for WRITE operations (encryption)
     /// This is called by Seal service when encrypting data
     /// Only owner and doctors can encrypt
-    public entry fun seal_approve_write(
+    public fun seal_approve_write(
         id: vector<u8>,
         whitelist: &SealWhitelist,
-        _clock: &Clock,
         ctx: &TxContext
     ) {
         assert!(approve_write_internal(tx_context::sender(ctx), id, whitelist), E_NO_WRITE_ACCESS);
@@ -434,7 +435,6 @@ module medical_vault::seal_whitelist {
     public fun seal_approve_read(
         id: vector<u8>,
         whitelist: &SealWhitelist,
-        _clock: &Clock,
         ctx: &TxContext
     ) {
         assert!(approve_read_internal(tx_context::sender(ctx), id, whitelist), E_NO_READ_ACCESS);
