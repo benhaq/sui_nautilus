@@ -52,7 +52,8 @@ export default function DownloadRecordModal({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `medical_record_${record.objectId.slice(0, 8)}${extension}`;
+      a.download = `medical_record_${record.objectId.slice(0, 8)}`;
+      a.type = mimeType || 'application/octet-stream';
       a.click();
       window.URL.revokeObjectURL(url);
 

@@ -123,18 +123,13 @@ export class RecordsController {
   // @Header('Content-Type', 'application/octet-stream')
   async downloadWithSignature(
     @Param('id') recordId: string,
-    @Body() body: { sessionId: string; signature: string; extension: string; mimeType: string },
+    @Body() body: { sessionId: string; signature: string },
     @Res() res: Response,
   ) {
     const result = await this.recordsService.downloadWithSignature(body.sessionId, body.signature);
-    console.log(result);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${result.filename}${result.extension}"`,
-    );
-    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.setHeader('Content-Type', result.mimeType || 'application/octet-stream');
     res.setHeader('Content-Length', result.decryptedData.length);
-    // res.setHeader('Content-Type', 'application/octet-stream');
     res.send(result.decryptedData);
   }
 
@@ -159,7 +154,7 @@ export class RecordsController {
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.setHeader('Content-Length', decryptedData.length);
 
-    return res.send(decryptedData); // 👈 QUAN TRỌNG
+    return res.send(decryptedData);
   }
 
   @Post(':id/download')
