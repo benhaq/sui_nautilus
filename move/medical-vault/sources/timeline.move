@@ -134,29 +134,6 @@ module medical_vault::timeline {
         revoked: bool,
     }
 
-    /// TimelineSummary - Aggregated statistics for a patient's timeline
-    public struct TimelineSummary has key, store {
-        id: UID,
-        /// Reference to patient
-        patient_ref: String,
-        /// Associated whitelist ID
-        whitelist_id: ID,
-        /// Total number of visits
-        visit_count: u64,
-        /// Count by scope
-        treatment_count: u64,
-        payment_count: u64,
-        operations_count: u64,
-        research_count: u64,
-        legal_count: u64,
-        /// Date range (format: YYYY-MM-DD)
-        first_visit: String,
-        last_visit: String,
-        /// Unique provider specialties encountered
-        specialties: vector<String>,
-        /// Last update timestamp
-        updated_at: u64,
-    }
 
     // ============================================
     // Timeline Events
@@ -177,14 +154,6 @@ module medical_vault::timeline {
         whitelist_id: ID,
         patient_ref_bytes: vector<u8>,
         timestamp_ms: u64,
-    }
-
-    /// Emitted when a timeline summary is updated
-    public struct TimelineSummaryUpdated has copy, drop {
-        summary_id: ID,
-        visit_count: u64,
-        scope: u8,
-        timestamp: u64,
     }
 
     
@@ -345,100 +314,6 @@ module medical_vault::timeline {
         });
     }
 
-    // ============================================
-    // Summary Functions
-    // ============================================
-
-    /// Initialize a timeline summary for a new patient
-    entry fun create_summary(
-        patient_ref: vector<u8>,
-        whitelist_id: ID,
-        _clock: &Clock,
-        ctx: &mut TxContext,
-    ) {
-        assert!(vector::length(&patient_ref) > 0, E_EMPTY_PATIENT_REF);
-
-        let summary_uid = object::new(ctx);
-
-        let summary = TimelineSummary {
-            id: summary_uid,
-            patient_ref: string::utf8(patient_ref),
-            whitelist_id,
-            visit_count: 0,
-            treatment_count: 0,
-            payment_count: 0,
-            operations_count: 0,
-            research_count: 0,
-            legal_count: 0,
-            first_visit: string::utf8(b""),
-            last_visit: string::utf8(b""),
-            specialties: vector::empty(),
-            updated_at: 0,
-        };
-
-        transfer::share_object(summary);
-    }
-
-    /// Update a timeline summary when a new entry is added
-    entry fun update_summary(
-        summary: &mut TimelineSummary,
-        scope: u8,
-        visit_date: vector<u8>,
-        provider_specialty: vector<u8>,
-        clock: &Clock,
-        _ctx: &mut TxContext,
-    ) {
-        let current_time = clock.timestamp_ms();
-
-        // Increment visit count
-        summary.visit_count = summary.visit_count + 1;
-
-        // Increment scope-specific count
-        if (scope == SCOPE_TREATMENT) {
-            summary.treatment_count = summary.treatment_count + 1;
-        } else if (scope == SCOPE_PAYMENT) {
-            summary.payment_count = summary.payment_count + 1;
-        } else if (scope == SCOPE_OPERATIONS) {
-            summary.operations_count = summary.operations_count + 1;
-        } else if (scope == SCOPE_RESEARCH) {
-            summary.research_count = summary.research_count + 1;
-        } else if (scope == SCOPE_LEGAL) {
-            summary.legal_count = summary.legal_count + 1;
-        };
-
-        // Update date range
-        let visit_date_str = string::utf8(visit_date);
-        if (summary.first_visit.is_empty()) {
-            summary.first_visit = visit_date_str;
-        };
-        summary.last_visit = visit_date_str;
-
-        // Add specialty if unique
-        let specialty_str = string::utf8(provider_specialty);
-        let mut found = false;
-        let mut i = 0;
-        let len = vector::length(&summary.specialties);
-        while (i < len) {
-            if (*vector::borrow(&summary.specialties, i) == specialty_str) {
-                found = true;
-                break
-            };
-            i = i + 1;
-        };
-        if (!found) {
-            vector::push_back(&mut summary.specialties, specialty_str);
-        };
-
-        summary.updated_at = current_time;
-
-        event::emit(TimelineSummaryUpdated {
-            summary_id: object::uid_to_inner(&summary.id),
-            visit_count: summary.visit_count,
-            scope,
-            timestamp: current_time,
-        });
-    }
-
     /// Revoke a timeline entry (requires mutable access to whitelist)
     entry fun revoke_entry(
         whitelist: &mut SealWhitelist,
@@ -557,29 +432,5 @@ module medical_vault::timeline {
 
     public fun is_revoked(entry: &TimelineEntry): bool {
         entry.revoked
-    }
-
-    public fun summary_visit_count(summary: &TimelineSummary): u64 {
-        summary.visit_count
-    }
-
-    public fun summary_treatment_count(summary: &TimelineSummary): u64 {
-        summary.treatment_count
-    }
-
-    public fun summary_payment_count(summary: &TimelineSummary): u64 {
-        summary.payment_count
-    }
-
-    public fun summary_first_visit(summary: &TimelineSummary): &String {
-        &summary.first_visit
-    }
-
-    public fun summary_last_visit(summary: &TimelineSummary): &String {
-        &summary.last_visit
-    }
-
-    public fun summary_specialties(summary: &TimelineSummary): &vector<String> {
-        &summary.specialties
     }
 }
