@@ -217,7 +217,7 @@ module medical_vault::timeline {
             patient_ref_bytes: *&key.patient_ref_bytes,
             entry_type,
             visit_date: string::utf8(visit_date),
-            ç√: string::utf8(provider_specialty),
+            provider_specialty: string::utf8(provider_specialty),
             visit_type: string::utf8(visit_type),
             status: string::utf8(status),
             content_hash: string::utf8(content_hash),
