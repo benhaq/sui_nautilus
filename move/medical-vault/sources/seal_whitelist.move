@@ -61,6 +61,8 @@ module medical_vault::seal_whitelist {
         name: String,
         /// Owner (patient) - read/write access
         owner: address,
+        /// Patient - read-only access
+        patient: address,
         /// Authorized doctors - read/write access (can encrypt & decrypt)
         doctors: vector<address>,
         /// Authorized members (family, viewers) - read-only access (can only decrypt)
@@ -176,6 +178,7 @@ module medical_vault::seal_whitelist {
     public fun create_whitelist(
         registry: &mut WhitelistRegistry,
         name: vector<u8>,
+        patient: address,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
@@ -187,6 +190,7 @@ module medical_vault::seal_whitelist {
             id: whitelist_uid,
             name: string::utf8(name),
             owner: sender,
+            patient,
             doctors: vector::empty(),
             members: vector::empty(),
             records: vector::empty(),
@@ -200,6 +204,9 @@ module medical_vault::seal_whitelist {
 
         // Register owner's access to this whitelist
         add_user_whitelist_access(registry, sender, whitelist_id, ctx);
+
+        // Register patient's access to this whitelist
+        add_user_whitelist_access(registry, patient, whitelist_id, ctx);
 
         event::emit(WhitelistCreated {
             whitelist_id,
@@ -367,8 +374,9 @@ module medical_vault::seal_whitelist {
     ): bool {
         user == whitelist.owner || 
         whitelist.doctors.contains(&user) || 
-        whitelist.members.contains(&user)
-    }
+        whitelist.members.contains(&user) ||
+        user == whitelist.patient
+   }
 
     /// Internal approval check for writers (encrypt/decrypt access)
     /// Verifies: 1) Key ID has correct namespace, 2) User is owner or doctor
@@ -400,16 +408,17 @@ module medical_vault::seal_whitelist {
             return false
         };
         
-        // Check if user has read access (owner, doctor, or member)
+        // Check if user has read access (owner, doctor, member, or patient)
         caller == whitelist.owner || 
         whitelist.doctors.contains(&caller) || 
-        whitelist.members.contains(&caller)
+        whitelist.members.contains(&caller) ||
+        caller == whitelist.patient
     }
 
     /// Seal approve entry for WRITE operations (encryption)
     /// This is called by Seal service when encrypting data
     /// Only owner and doctors can encrypt
-    public fun seal_approve_write(
+    public entry fun seal_approve_write(
         id: vector<u8>,
         whitelist: &SealWhitelist,
         _clock: &Clock,
@@ -439,6 +448,10 @@ module medical_vault::seal_whitelist {
         whitelist.owner
     }
 
+    public fun patient(whitelist: &SealWhitelist): address {
+        whitelist.patient
+    }
+
     public fun doctors(whitelist: &SealWhitelist): &vector<address> {
         &whitelist.doctors
     }
@@ -450,6 +463,11 @@ module medical_vault::seal_whitelist {
     /// Check if address is owner
     public fun is_owner(whitelist: &SealWhitelist, user: address): bool {
         whitelist.owner == user
+    }
+
+    /// Check if address is patient
+    public fun is_patient(whitelist: &SealWhitelist, user: address): bool {
+        whitelist.patient == user
     }
 
     /// Check if address is doctor
@@ -509,7 +527,7 @@ module medical_vault::seal_whitelist {
     ////////////////////////////////////////////////////////////
 
     /// Get the role of a user in this whitelist
-    /// Returns: ROLE_OWNER (0), ROLE_DOCTOR (1), ROLE_MEMBER (2), or ROLE_NONE (255)
+    /// Returns: ROLE_OWNER (0), ROLE_DOCTOR (1), ROLE_MEMBER (2), ROLE_PATIENT (3), or ROLE_NONE (255)
     public fun get_user_role(whitelist: &SealWhitelist, user: address): u8 {
         if (user == whitelist.owner) {
             return ROLE_OWNER
@@ -521,6 +539,10 @@ module medical_vault::seal_whitelist {
         
         if (whitelist.members.contains(&user)) {
             return ROLE_MEMBER
+        };
+
+        if (user == whitelist.patient) {
+            return ROLE_PATIENT
         };
         
         ROLE_NONE
@@ -629,7 +651,7 @@ module medical_vault::seal_whitelist {
     ): (u8, bool, bool) {
         let role = get_user_role(whitelist, user);
         let has_write = user == whitelist.owner || whitelist.doctors.contains(&user);
-        let has_read = has_write || whitelist.members.contains(&user);
+        let has_read = has_write || whitelist.members.contains(&user) || user == whitelist.patient;
         (role, has_read, has_write)
     }
 
@@ -653,7 +675,8 @@ module medical_vault::seal_whitelist {
     ): bool {
         user == whitelist.owner ||
         whitelist.doctors.contains(&user) ||
-        whitelist.members.contains(&user)
+        whitelist.members.contains(&user) ||
+        user == whitelist.patient
     }
 
     /// Check if user has write access to a specific whitelist
@@ -671,7 +694,8 @@ module medical_vault::seal_whitelist {
     ): bool {
         user == whitelist.owner ||
         whitelist.doctors.contains(&user) ||
-        whitelist.members.contains(&user)
+        whitelist.members.contains(&user) ||
+        user == whitelist.patient
     }
 
     /// Get complete access information for a user in a whitelist
@@ -683,7 +707,7 @@ module medical_vault::seal_whitelist {
         let whitelist_id = object::uid_to_inner(&whitelist.id);
         let role = get_user_role(whitelist, user);
         let has_write = user == whitelist.owner || whitelist.doctors.contains(&user);
-        let has_read = has_write || whitelist.members.contains(&user);
+        let has_read = has_write || whitelist.members.contains(&user) || user == whitelist.patient;
 
         WhitelistAccessInfo {
             whitelist_id,
@@ -721,7 +745,7 @@ module medical_vault::seal_whitelist {
         let whitelist_id = object::uid_to_inner(&whitelist.id);
         let role = get_user_role(whitelist, user);
         let has_write = user == whitelist.owner || whitelist.doctors.contains(&user);
-        let has_read = has_write || whitelist.members.contains(&user);
+        let has_read = has_write || whitelist.members.contains(&user) || user == whitelist.patient;
         let record_count = vector::length(&whitelist.records);
         
         (whitelist_id, whitelist.name, whitelist.owner, role, has_read, has_write, record_count)

@@ -23,7 +23,13 @@ module medical_vault::timeline {
     use sui::dynamic_object_field::{Self as dof};
     use sui::event;
     use sui::clock::Clock;
+    use sui::coin::{Self, Coin};
+    use sui::sui::SUI;
+    use sui::transfer;
+    use sui::tx_context::{Self, TxContext};
+    use sui::hash;
     use std::string::{Self, String};
+    use std::vector;
     use enclave::enclave::{Enclave, verify_signature};
     use medical_vault::seal_whitelist::{Self, SealWhitelist};
 
@@ -40,6 +46,11 @@ module medical_vault::timeline {
     const E_INVALID_VISIT_DATE: u64 = 6;
     const E_ENTRY_NOT_FOUND: u64 = 7;
     const E_INVALID_WHITELIST: u64 = 8;
+    const E_POOL_ALREADY_EXISTS: u64 = 9;
+    const E_POOL_NOT_ACTIVE: u64 = 10;
+    const E_INVALID_PATIENT: u64 = 11;
+    const E_UNAUTHORIZED_CREATOR: u64 = 12;
+    const E_INVALID_DEPOSIT: u64 = 13;
 
     // ============================================
     // Intent Scope Constants
@@ -96,7 +107,6 @@ module medical_vault::timeline {
     public struct CreateEntryPayload has copy, drop {
         patient_ref: vector<u8>,
         entry_type: u8,
-        scope: u8,
         visit_date: vector<u8>,
         content_hash: vector<u8>,
     }
@@ -114,8 +124,6 @@ module medical_vault::timeline {
         patient_ref_bytes: vector<u8>,
         /// Type of entry (visit_summary, procedure, refill, note, etc.)
         entry_type: u8,
-        /// Policy scope (treatment, payment, operations, research, legal)
-        scope: u8,
         /// Date of visit (format: YYYY-MM-DD, no exact timestamp)
         visit_date: String,
         /// Provider specialty (general category, not provider name)
@@ -134,6 +142,22 @@ module medical_vault::timeline {
         revoked: bool,
     }
 
+    /// DepositPool - Holds SUI coins temporarily for patient withdrawal
+    /// Created when TimelineEntry status is updated to eligible state
+    public struct DepositPool has key {
+        id: UID,
+        /// ID of the associated TimelineEntry
+        timeline_entry_id: ID,
+        /// Patient reference bytes for validation
+        patient_ref_bytes: vector<u8>,
+        /// Creator who deposited the funds
+        creator: address,
+        /// Deposited SUI coins
+        balance: Coin<SUI>,
+        /// Whether pool is active (can be withdrawn)
+        active: bool,
+    }
+
 
     // ============================================
     // Timeline Events
@@ -144,7 +168,6 @@ module medical_vault::timeline {
         whitelist_id: ID,
         patient_ref_bytes: vector<u8>,
         timestamp_ms: u64,
-        scope: u8,
         visit_date: String,
         entry_type: u8,
     }
@@ -154,6 +177,30 @@ module medical_vault::timeline {
         whitelist_id: ID,
         patient_ref_bytes: vector<u8>,
         timestamp_ms: u64,
+    }
+
+    /// Emitted when a deposit pool is created
+    public struct DepositPoolCreated has copy, drop {
+        timeline_entry_id: ID,
+        pool_id: ID,
+        creator: address,
+        amount: u64,
+    }
+
+    /// Emitted when patient withdraws from deposit pool
+    public struct PatientWithdrawn has copy, drop {
+        timeline_entry_id: ID,
+        pool_id: ID,
+        patient: address,
+        amount: u64,
+    }
+
+    /// Emitted when creator cancels deposit pool
+    public struct PoolCancelled has copy, drop {
+        timeline_entry_id: ID,
+        pool_id: ID,
+        creator: address,
+        amount: u64,
     }
 
     
@@ -173,7 +220,6 @@ module medical_vault::timeline {
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
         entry_type: u8,
-        scope: u8,
         visit_date: vector<u8>,
         provider_specialty: vector<u8>,
         visit_type: vector<u8>,
@@ -189,14 +235,12 @@ module medical_vault::timeline {
         // Validate inputs
         assert!(vector::length(&patient_ref) > 0, E_EMPTY_PATIENT_REF);
         assert!(vector::length(&visit_date) > 0, E_INVALID_VISIT_DATE);
-        assert!(scope <= SCOPE_LEGAL, E_INVALID_SCOPE);
         assert!(entry_type <= ENTRY_IMMUNIZATION, E_INVALID_ENTRY_TYPE);
 
         // Build intent payload
         let payload = CreateEntryPayload {
             patient_ref: patient_ref,
             entry_type: entry_type,
-            scope: scope,
             visit_date: visit_date,
             content_hash: content_hash,
         };
@@ -222,7 +266,6 @@ module medical_vault::timeline {
             id: object::new(ctx),
             patient_ref_bytes: *&key.patient_ref_bytes,
             entry_type,
-            scope,
             visit_date: string::utf8(visit_date),
             provider_specialty: string::utf8(provider_specialty),
             visit_type: string::utf8(visit_type),
@@ -241,7 +284,6 @@ module medical_vault::timeline {
             whitelist_id: seal_whitelist::whitelist_id(whitelist),
             patient_ref_bytes: *&key.patient_ref_bytes,
             timestamp_ms,
-            scope,
             visit_date: string::utf8(visit_date),
             entry_type,
         });
@@ -252,7 +294,6 @@ module medical_vault::timeline {
         whitelist: &mut SealWhitelist,
         patient_ref: vector<u8>,
         entry_type: u8,
-        scope: u8,
         visit_date: vector<u8>,
         content_hash: vector<u8>,
         walrus_blob_id: vector<u8>,
@@ -263,12 +304,10 @@ module medical_vault::timeline {
         ctx: &mut TxContext,
     ) {
         assert!(vector::length(&patient_ref) > 0, E_EMPTY_PATIENT_REF);
-        assert!(scope <= SCOPE_LEGAL, E_INVALID_SCOPE);
 
         let payload = CreateEntryPayload {
             patient_ref,
             entry_type,
-            scope,
             visit_date,
             content_hash,
         };
@@ -291,7 +330,6 @@ module medical_vault::timeline {
             id: object::new(ctx),
             patient_ref_bytes: *&key.patient_ref_bytes,
             entry_type,
-            scope,
             visit_date: string::utf8(visit_date),
             provider_specialty: string::utf8(b""),
             visit_type: string::utf8(b""),
@@ -308,7 +346,6 @@ module medical_vault::timeline {
             whitelist_id: seal_whitelist::whitelist_id(whitelist),
             patient_ref_bytes: *&key.patient_ref_bytes,
             timestamp_ms,
-            scope,
             visit_date: string::utf8(visit_date),
             entry_type,
         });
@@ -345,25 +382,186 @@ module medical_vault::timeline {
     }
 
     // ============================================
-    // Helper Functions
+    // Deposit Pool Functions
     // ============================================
 
-    /// Get scope name as bytes
-    public fun scope_name(scope: u8): vector<u8> {
-        if (scope == SCOPE_TREATMENT) {
-            b"treatment"
-        } else if (scope == SCOPE_PAYMENT) {
-            b"payment"
-        } else if (scope == SCOPE_OPERATIONS) {
-            b"operations"
-        } else if (scope == SCOPE_RESEARCH) {
-            b"research"
-        } else if (scope == SCOPE_LEGAL) {
-            b"legal"
-        } else {
-            b"unknown"
-        }
+    /// Update status of TimelineEntry and create deposit pool with SUI deposit
+    /// Only creator can call this function
+    /// Requires deposit amount > 0
+    entry fun create_pool_and_deposit(
+        whitelist: &mut SealWhitelist,
+        patient_ref: vector<u8>,
+        timestamp_ms: u64,
+        deposit_coin: Coin<SUI>,
+        ctx: &mut TxContext,
+    ) {
+        let sender = tx_context::sender(ctx);
+        let key = TimelineEntryKey {
+            patient_ref_bytes: patient_ref,
+            timestamp_ms,
+        };
+
+        // Check if entry exists
+        assert!(dof::exists_<TimelineEntryKey>(seal_whitelist::uid(whitelist), key), E_ENTRY_NOT_FOUND);
+
+        // Get mutable reference to entry
+        let entry: &mut TimelineEntry = dof::borrow_mut(seal_whitelist::uid_mut(whitelist), key);
+
+        // Check if entry is not revoked
+        assert!(!entry.revoked, E_ALREADY_REVOKED);
+
+        // Validate deposit amount
+        let deposit_amount = coin::value(&deposit_coin);
+        assert!(deposit_amount > 0, E_INVALID_DEPOSIT);
+
+        // Update status
+        entry.status = string::utf8(b"verified");
+
+        // Check if pool already exists (using entry ID as key)
+        let entry_id = object::id(entry);
+        assert!(!dof::exists_<ID>(seal_whitelist::uid(whitelist), entry_id), E_POOL_ALREADY_EXISTS);
+
+        // Create deposit pool
+        let pool = DepositPool {
+            id: object::new(ctx),
+            timeline_entry_id: entry_id,
+            patient_ref_bytes: patient_ref,
+            creator: sender,
+            balance: deposit_coin,
+            active: true,
+        };
+
+        let pool_id = object::id(&pool);
+        let amount = coin::value(&pool.balance);
+
+        // Add pool as dynamic field to whitelist
+        dof::add(seal_whitelist::uid_mut(whitelist), entry_id, pool);
+
+        // Emit event
+        event::emit(DepositPoolCreated {
+            timeline_entry_id: entry_id,
+            pool_id,
+            creator: sender,
+            amount,
+        });
     }
+
+    /// Patient withdraws from deposit pool
+    /// Validates patient using hash of their address
+    entry fun withdraw_by_patient(
+        whitelist: &mut SealWhitelist,
+        patient_ref: vector<u8>,
+        timestamp_ms: u64,
+        ctx: &mut TxContext,
+    ) {
+        let sender = tx_context::sender(ctx);
+        let key = TimelineEntryKey {
+            patient_ref_bytes: patient_ref,
+            timestamp_ms,
+        };
+
+        // Check if entry exists
+        assert!(dof::exists_<TimelineEntryKey>(seal_whitelist::uid(whitelist), key), E_ENTRY_NOT_FOUND);
+
+        // Get mutable reference to entry for status update
+        let entry: &mut TimelineEntry = dof::borrow_mut(seal_whitelist::uid_mut(whitelist), key);
+
+        // Check if entry is not revoked
+        assert!(!entry.revoked, E_ALREADY_REVOKED);
+
+        // Get entry ID for pool lookup
+        let entry_id = object::id(entry);
+
+        // Check if pool exists
+        assert!(dof::exists_<ID>(seal_whitelist::uid(whitelist), entry_id), E_POOL_ALREADY_EXISTS);
+
+        // Get mutable reference to pool
+        let pool: &mut DepositPool = dof::borrow_mut(seal_whitelist::uid_mut(whitelist), entry_id);
+
+        // Check if pool is active
+        assert!(pool.active, E_POOL_NOT_ACTIVE);
+
+        // Validate patient using hash
+        let patient_hash = hash::blake2b256(&tx_context::sender_bytes(ctx));
+        assert!(patient_hash == entry.patient_ref_bytes, E_INVALID_PATIENT);
+
+        // Withdraw funds
+        let amount = coin::value(&pool.balance);
+        transfer::public_transfer(pool.balance, sender);
+
+        // Deactivate pool
+        pool.active = false;
+        pool.balance = coin::zero(ctx);
+
+        // Update entry status to completed
+        entry.status = string::utf8(b"completed");
+
+        // Emit event
+        event::emit(PatientWithdrawn {
+            timeline_entry_id: entry_id,
+            pool_id: object::id(pool),
+            patient: sender,
+            amount,
+        });
+    }
+
+    /// Creator cancels deposit pool and refunds
+    entry fun cancel_pool_and_refund_creator(
+        whitelist: &mut SealWhitelist,
+        patient_ref: vector<u8>,
+        timestamp_ms: u64,
+        ctx: &mut TxContext,
+    ) {
+        let sender = tx_context::sender(ctx);
+        let key = TimelineEntryKey {
+            patient_ref_bytes: patient_ref,
+            timestamp_ms,
+        };
+
+        // Check if entry exists
+        assert!(dof::exists_<TimelineEntryKey>(seal_whitelist::uid(whitelist), key), E_ENTRY_NOT_FOUND);
+
+        // Get mutable reference to entry for status update
+        let entry: &mut TimelineEntry = dof::borrow_mut(seal_whitelist::uid_mut(whitelist), key);
+
+        // Get entry ID for pool lookup
+        let entry_id = object::id(entry);
+
+        // Check if pool exists
+        assert!(dof::exists_<ID>(seal_whitelist::uid(whitelist), entry_id), E_POOL_ALREADY_EXISTS);
+
+        // Get mutable reference to pool
+        let pool: &mut DepositPool = dof::borrow_mut(seal_whitelist::uid_mut(whitelist), entry_id);
+
+        // Check if pool is active
+        assert!(pool.active, E_POOL_NOT_ACTIVE);
+
+        // Check if sender is creator
+        assert!(pool.creator == sender, E_UNAUTHORIZED_CREATOR);
+
+        // Refund funds
+        let amount = coin::value(&pool.balance);
+        transfer::public_transfer(pool.balance, sender);
+
+        // Deactivate pool
+        pool.active = false;
+        pool.balance = coin::zero(ctx);
+
+        // Update entry status to cancelled
+        entry.status = string::utf8(b"cancelled");
+
+        // Emit event
+        event::emit(PoolCancelled {
+            timeline_entry_id: entry_id,
+            pool_id: object::id(pool),
+            creator: sender,
+            amount,
+        });
+    }
+
+    // ============================================
+    // Helper Functions
+    // ============================================
 
     /// Get entry type name as bytes
     public fun entry_type_name(entry_type: u8): vector<u8> {
@@ -398,10 +596,6 @@ module medical_vault::timeline {
         entry.entry_type
     }
 
-    public fun scope(entry: &TimelineEntry): u8 {
-        entry.scope
-    }
-
     public fun visit_date(entry: &TimelineEntry): &String {
         &entry.visit_date
     }
@@ -432,5 +626,29 @@ module medical_vault::timeline {
 
     public fun is_revoked(entry: &TimelineEntry): bool {
         entry.revoked
+    }
+
+    // ============================================
+    // DepositPool Getter Functions
+    // ============================================
+
+    public fun pool_timeline_entry_id(pool: &DepositPool): ID {
+        pool.timeline_entry_id
+    }
+
+    public fun pool_patient_ref_bytes(pool: &DepositPool): &vector<u8> {
+        &pool.patient_ref_bytes
+    }
+
+    public fun pool_creator(pool: &DepositPool): address {
+        pool.creator
+    }
+
+    public fun pool_balance_value(pool: &DepositPool): u64 {
+        coin::value(&pool.balance)
+    }
+
+    public fun pool_is_active(pool: &DepositPool): bool {
+        pool.active
     }
 }
