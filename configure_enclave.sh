@@ -55,7 +55,7 @@ REGION="${REGION:-ap-southeast-1}"
 export AWS_DEFAULT_REGION="$REGION"
 
 # The default AMI for ap-southeast-1.
-AMI_ID="${AMI_ID:-ami-0126eb82b7f60eb93}"
+AMI_ID="${AMI_ID:-ami-05edef9230865e65c}"
 
 # Environment variable name for our secret; default is 'API_KEY'
 API_ENV_VAR_NAME="${API_ENV_VAR_NAME:-API_KEY}"

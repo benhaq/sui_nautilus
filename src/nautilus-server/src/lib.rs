@@ -9,7 +9,7 @@ use fastcrypto::ed25519::Ed25519KeyPair;
 use serde_json::json;
 use std::fmt;
 
-mod apps {
+pub mod apps {
     #[cfg(feature = "medical-vault-insurer")]
     #[path = "medical-vault-insurer/mod.rs"]
     pub mod medical_vault_insurer;

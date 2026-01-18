@@ -22,7 +22,9 @@ busybox ip link set dev lo up
 
 # Add a hosts record, pointing target site calls to local loopback
 echo "127.0.0.1   localhost" > /etc/hosts
-
+echo "127.0.0.64   aggregator.walrus-testnet.walrus.space" >> /etc/hosts
+echo "127.0.0.65   fullnode.testnet.sui.io" >> /etc/hosts
+echo "127.0.0.66   openrouter.ai" >> /etc/hosts
 
 
 
@@ -31,27 +33,41 @@ echo "127.0.0.1   localhost" > /etc/hosts
 
 cat /etc/hosts
 
-# Get a json blob with key/value pair for secrets
-JSON_RESPONSE=$(socat - VSOCK-LISTEN:7777,reuseaddr)
-# Sets all key value pairs as env variables that will be referred by the server
-# This is shown as a example below. For production usecases, it's best to set the
-# keys explicitly rather than dynamically.
-echo "$JSON_RESPONSE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/kvpairs ; while IFS="=" read -r key value; do export "$key"="$value"; done < /tmp/kvpairs ; rm -f /tmp/kvpairs
+# Optional: Get secrets from VSOCK port 7777 (timeout after 10s)
+# This allows the host to send secrets to the enclave
+echo "Waiting for secrets (timeout 10s)..."
+JSON_RESPONSE=$(timeout 10 socat - VSOCK-LISTEN:7777,reuseaddr,bind=7777 2>/dev/null || echo "{}")
+if [ "$JSON_RESPONSE" != "{}" ] && [ -n "$JSON_RESPONSE" ]; then
+    echo "Received secrets, setting environment variables..."
+    echo "$JSON_RESPONSE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/kvpairs
+    while IFS="=" read -r key value; do
+        if [ -n "$key" ]; then
+            export "$key"="$value"
+            echo "  Set: $key"
+        fi
+    done < /tmp/kvpairs
+    rm -f /tmp/kvpairs
+else
+    echo "No secrets received (timeout or empty), continuing without..."
+fi
 
 # Run traffic forwarder in background and start the server
-# Forwards traffic from 127.0.0.x -> Port 443 at CID 3 Listening on port 800x
-# There is a vsock-proxy that listens for this and forwards to the respective domains
+# Forwards traffic from 127.0.0.x -> VSOCK Port 810x at CID 2 (host)
+# The host's vsock-proxy then forwards to the respective external services
 
 # == ATTENTION: code should be generated here that added all hosts to forward traffic ===
 # Traffic-forwarder-block
-
-
+# CID 2 = Nitro Enclave host
+python3 /traffic_forwarder.py 127.0.0.64 443 2 8101 &
+python3 /traffic_forwarder.py 127.0.0.65 443 2 8102 &
+python3 /traffic_forwarder.py 127.0.0.66 443 2 8103 &
 
 
 # Listens on Local VSOCK Port 3000 and forwards to localhost 3000
 socat VSOCK-LISTEN:3000,reuseaddr,fork TCP:localhost:3000 &
-
 # For seal-example: Listen on VSOCK Port 3001 and forward to localhost 3001
 socat VSOCK-LISTEN:3001,reuseaddr,fork TCP:localhost:3001 &
 
-/nautilus-server
+# Start the nautilus-server
+echo "Starting nautilus-server..."
+exec /nautilus-server

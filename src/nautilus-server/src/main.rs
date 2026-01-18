@@ -4,6 +4,9 @@
 use anyhow::Result;
 use axum::{routing::get, routing::post, Router};
 use fastcrypto::{ed25519::Ed25519KeyPair, traits::KeyPair};
+#[cfg(feature = "medical-vault-insurer")]
+use nautilus_server::apps::medical_vault_insurer::{process_data, spawn_host_init_server};
+#[cfg(not(feature = "medical-vault-insurer"))]
 use nautilus_server::app::process_data;
 use nautilus_server::common::{get_attestation, health_check};
 use nautilus_server::AppState;
@@ -14,16 +17,15 @@ use tracing::info;
 #[tokio::main]
 async fn main() -> Result<()> {
     let eph_kp = Ed25519KeyPair::generate(&mut rand::thread_rng());
-    // Medical-vault-insurer also uses Seal, so no API key needed from environment
-    #[cfg(feature = "medical-vault-insurer")]
+    // Medical-vault-insurer uses Seal, so no API key needed from environment
     let api_key = String::new();
 
     let state = Arc::new(AppState { eph_kp, api_key });
 
-    // Spawn host-only init server if medical-vault-insurer feature is enabled
+    // Spawn host-only init server for Seal key provisioning (port 3001)
     #[cfg(feature = "medical-vault-insurer")]
     {
-        nautilus_server::app::spawn_host_init_server(state.clone()).await?;
+        spawn_host_init_server(state.clone()).await?;
     }
 
     // Define your own restricted CORS policy here if needed.

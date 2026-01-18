@@ -1,13 +1,9 @@
 module medical_vault::seal_whitelist {
-    use enclave::enclave::{Enclave, create_intent_message};
-    use sui::object::{UID, ID};
-    use sui::tx_context::TxContext;
-    use sui::transfer;
+    use enclave::enclave::{Self, Enclave, create_intent_message};
     use sui::bcs;
     use sui::ed25519;
     use sui::hash::blake2b256;
     use std::string::{Self, String};
-    use std::vector;
     use sui::event;
     use sui::clock::{Self, Clock};
     use sui::table::{Self, Table};
@@ -108,12 +104,27 @@ module medical_vault::seal_whitelist {
         operation: String,
     }
 
+    public struct SEAL_WHITELIST has drop {}
+
+
+
     /// Initialize the global registry (should be called once during deployment)
-    fun init(ctx: &mut TxContext) {
+    fun init(otw: SEAL_WHITELIST, ctx: &mut TxContext) {
         let registry = WhitelistRegistry {
             id: object::new(ctx),
             user_whitelists: table::new(ctx),
         };
+        let cap = enclave::new_cap(otw, ctx);
+
+        cap.create_enclave_config(
+            b"medical record enclave".to_string(),
+            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr0
+            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr1
+            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr2
+            ctx,
+        );
+
+        transfer::public_transfer(cap, ctx.sender());
         transfer::share_object(registry);
     }
 
@@ -161,7 +172,8 @@ module medical_vault::seal_whitelist {
     /// Create a new Seal whitelist allowlist
     /// Sender becomes the owner with read/write access
     /// This replaces the folder creation - whitelists are now the main organizational unit
-    public entry fun create_whitelist(
+    #[allow(lint(self_transfer))]
+    public fun create_whitelist(
         registry: &mut WhitelistRegistry,
         name: vector<u8>,
         clock: &Clock,
@@ -200,7 +212,7 @@ module medical_vault::seal_whitelist {
     }
 
     /// Add a doctor to the allowlist (read/write access)
-    public entry fun add_doctor(
+    public fun add_doctor(
         registry: &mut WhitelistRegistry,
         whitelist: &mut SealWhitelist,
         cap: &WhitelistAdminCap,
@@ -226,7 +238,7 @@ module medical_vault::seal_whitelist {
     }
 
     /// Add a member to the allowlist (read-only access)
-    public entry fun add_member(
+    public fun add_member(
         registry: &mut WhitelistRegistry,
         whitelist: &mut SealWhitelist,
         cap: &WhitelistAdminCap,
@@ -252,7 +264,7 @@ module medical_vault::seal_whitelist {
     }
 
     /// Remove a doctor from the allowlist
-    public entry fun remove_doctor(
+    public fun remove_doctor(
         registry: &mut WhitelistRegistry,
         whitelist: &mut SealWhitelist,
         cap: &WhitelistAdminCap,
@@ -278,7 +290,7 @@ module medical_vault::seal_whitelist {
     }
 
     /// Remove a member from the allowlist
-    public entry fun remove_member(
+    public fun remove_member(
         registry: &mut WhitelistRegistry,
         whitelist: &mut SealWhitelist,
         cap: &WhitelistAdminCap,
@@ -397,7 +409,7 @@ module medical_vault::seal_whitelist {
     /// Seal approve entry for WRITE operations (encryption)
     /// This is called by Seal service when encrypting data
     /// Only owner and doctors can encrypt
-    public entry fun seal_approve_write(
+    public fun seal_approve_write(
         id: vector<u8>,
         whitelist: &SealWhitelist,
         _clock: &Clock,
@@ -409,7 +421,7 @@ module medical_vault::seal_whitelist {
     /// Seal approve entry for READ operations (decryption)
     /// This is called by Seal service when decrypting data
     /// Owner, doctors, and members can all decrypt
-    public entry fun seal_approve_read(
+    public fun seal_approve_read(
         id: vector<u8>,
         whitelist: &SealWhitelist,
         _clock: &Clock,
@@ -717,7 +729,7 @@ module medical_vault::seal_whitelist {
 
     /// Entry function to verify user access to a whitelist
     /// Can be called from frontend to check permissions before attempting operations
-    public entry fun verify_user_access(
+    public fun verify_user_access(
         whitelist: &SealWhitelist,
         ctx: &TxContext
     ) {
@@ -727,7 +739,7 @@ module medical_vault::seal_whitelist {
 
     /// Entry function to verify user write access to a whitelist
     /// Can be called from frontend to check write permissions
-    public entry fun verify_user_write_access(
+    public fun verify_user_write_access(
         whitelist: &SealWhitelist,
         ctx: &TxContext
     ) {
@@ -763,7 +775,7 @@ module medical_vault::seal_whitelist {
         signature: vector<u8>,
         wallet_pk: vector<u8>,
         timestamp: u64,
-        enclave: &Enclave<SealWhitelist>,
+        enclave: &Enclave<SEAL_WHITELIST>,
         ctx: &TxContext,
     ) {
         assert!(id == vector[0u8], E_INVALID_ENCLAVE_SIGNATURE);

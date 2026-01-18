@@ -20,15 +20,11 @@
 /// - Visit type categorization (checkup, procedure, etc.)
 
 module medical_vault::timeline {
-    use sui::object::{Self, UID, ID};
     use sui::dynamic_object_field::{Self as dof};
-    use sui::tx_context::TxContext;
-    use sui::transfer;
     use sui::event;
     use sui::clock::Clock;
     use std::string::{Self, String};
-    use std::vector;
-    use enclave::enclave::{Self, Enclave, verify_signature};
+    use enclave::enclave::{Enclave, verify_signature};
     use medical_vault::seal_whitelist::{Self, SealWhitelist};
 
     // ============================================
@@ -190,25 +186,8 @@ module medical_vault::timeline {
         scope: u8,
         timestamp: u64,
     }
-    // ============================================
-    // Type Witness
-    // ============================================
 
-    public struct TIMELINE has drop {}
-
-    fun init(otw: TIMELINE, ctx: &mut TxContext) {
-        let cap = enclave::new_cap(otw, ctx);
-
-        cap.create_enclave_config(
-            b"weather enclave".to_string(),
-            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr0
-            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr1
-            x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // pcr2
-            ctx,
-        );
-
-        transfer::public_transfer(cap, ctx.sender())
-    }
+    
 
     // ============================================
     // Entry Functions (Nautilus Intent Pattern)

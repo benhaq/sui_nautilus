@@ -9,6 +9,7 @@ out:
 
 out/nitro.eif: $(shell git ls-files src) | out
 	docker build \
+		--no-cache \
 		--pull \
 		--tag $(REGISTRY)/enclaveos \
 		--progress=plain \

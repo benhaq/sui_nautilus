@@ -1,13 +1,9 @@
 module medical_vault::medical_record {
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use std::string::{Self, String};
-    use std::vector;
     use sui::event;
     use sui::clock::{Self, Clock};
     use medical_vault::seal_whitelist::{Self, SealWhitelist, WhitelistAdminCap};
-
+    
     /// Error codes
     const E_NO_WHITELIST_ACCESS: u64 = 1;
     const E_NOT_UPLOADER: u64 = 2;
@@ -164,7 +160,7 @@ module medical_vault::medical_record {
     }
 
     /// Add files to existing record (only the original uploader doctor can add)
-    public entry fun add_files_to_record(
+    public fun add_files_to_record(
         whitelist: &SealWhitelist,
         record: &mut Record,
         walrus_cid: vector<u8>,

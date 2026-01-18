@@ -3,5 +3,5 @@
 endpoints:
   # Walrus blob storage (for FHIR bundle storage/retrieval)
   - "aggregator.walrus-testnet.walrus.space"
-  - "publisher.walrus-testnet.walrus.space"
+  - "fullnode.testnet.sui.io"
   - "openrouter.ai/api/v1/chat/completions"

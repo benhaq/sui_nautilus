@@ -1,12 +1,12 @@
 # Seal-Nautilus Pattern
 
-This example is currently WIP. Use it as a reference only. 
+This example is currently WIP. Use it as a reference only.
 
 The Seal-Nautilus pattern provides secure secret management for enclave applications, where user can encrypt any secrets to an enclave binary.
 
-One can define a Seal policy configured with specified PCRs of the enclave. Users can encrypt any data using Seal with a fixed ID, and only the enclave of the given PCRs can decrypt them. 
+One can define a Seal policy configured with specified PCRs of the enclave. Users can encrypt any data using Seal with a fixed ID, and only the enclave of the given PCRs can decrypt them.
 
-Here we reuse the weather example: Instead of storing the `weather-api-key` with AWS Secret Manager, we encrypt it using Seal, and show that only the enclave with the expected PCRs is able to decrypt and use it. 
+Here we reuse the weather example: Instead of storing the `weather-api-key` with AWS Secret Manager, we encrypt it using Seal, and show that only the enclave with the expected PCRs is able to decrypt and use it.
 
 ## Components
 
@@ -14,7 +14,7 @@ Here we reuse the weather example: Instead of storing the `weather-api-key` with
 
 2. Seal [CLI](https://github.com/MystenLabs/seal/tree/main/crates/seal-cli): In particular, `encrypt` and `fetch-keys` are used for this example. The latest doc for the CLI can be found [here](https://seal-docs.wal.app/SealCLI/#7-encrypt-and-fetch-keys-using-service-providers).
 
-3. Move contract `move/seal-policy/seal_policy.move`: This defines the `seal_approve` policy that verifies the signature committed to the wallet public key using the enclave ephermal key. 
+3. Move contract `move/seal-policy/seal_policy.move`: This defines the `seal_approve` policy that verifies the signature committed to the wallet public key using the enclave ephermal key.
 
 ## Overview
 
@@ -23,11 +23,11 @@ Here we reuse the weather example: Instead of storing the `weather-api-key` with
 
 Phase 1: Start and Register the Server
 
-1. Admin specifies the `seal_config.yaml` with the published Seal policy package ID and Seal configurations. Then the admin builds and runs the enclave with exposed `/get_attestation` endpoint. 
+1. Admin specifies the `seal_config.yaml` with the published Seal policy package ID and Seal configurations. Then the admin builds and runs the enclave with exposed `/get_attestation` endpoint.
 
 2. Admin uses the attestation response to register PCRs and the enclave public key. The `/process_data` endpoint currently returns an error because the `SEAL_API_KEY` is not yet initialized.
 
-3. Admin registers the enclave on-chain and get enclave object ID and initial shared version. 
+3. Admin registers the enclave on-chain and get enclave object ID and initial shared version.
 
 Phase 2: Initialize and Complete Key Load
 
@@ -39,9 +39,9 @@ Phase 2: Initialize and Complete Key Load
 
 Phase 3: Provision Application Secrets
 
-7. Now that Seal keys are cached, encrypted objects can be decrypted on-demand using the cached keys. Specifically for our example, Admin calls `/admin/provision_weather_api_key` with the encrypted weather API key object. The enclave decrypts it using the cached keys and stores it as `SEAL_API_KEY`. 
+7. Now that Seal keys are cached, encrypted objects can be decrypted on-demand using the cached keys. Specifically for our example, Admin calls `/admin/provision_weather_api_key` with the encrypted weather API key object. The enclave decrypts it using the cached keys and stores it as `SEAL_API_KEY`.
 
-8. Enclave can now serve `/process_data` requests. 
+8. Enclave can now serve `/process_data` requests.
 
 ## Security Guarantees
 
@@ -57,13 +57,13 @@ During `/init_seal_key_load`, the wallet signs a PersonalMessage for the certifi
 2. The key ID is a fixed value of `vector[0]`.
 3. The transaction sender matches the wallet public key.
 
-This proves that only the enclave (which has access to wallet and the ephemeral keypair) could have created a valid signed PTB, as the ephemeral keypair commits to the wallet public key. 
+This proves that only the enclave (which has access to wallet and the ephemeral keypair) could have created a valid signed PTB, as the ephemeral keypair commits to the wallet public key.
 
 During `/init_seal_key_load`, the enclave also generates an encryption keypair and return the encryption public key as part of `FetchKeyRequest`. The fetch key CLI is called outside the enclave, but no one except the enclave can decrypt the `FetchKeyResponse` since only enclave has the encryption secret key. Then the `FetchKeyResponse` is passed to the enclave at `/complete_seal_key_load`, and only the enclave can verify and decrypt the Seal key in memory.
 
 ### Why Two Step Key Load is Needed for Phase 2?
 
-This is because an enclave operates without direct internet access so it cannot fetch secrets from Seal key servers' HTTP endpoints directly. Here we use the host acts as an intermediary to fetch encrypted secrets from Seal servers. 
+This is because an enclave operates without direct internet access so it cannot fetch secrets from Seal key servers' HTTP endpoints directly. Here we use the host acts as an intermediary to fetch encrypted secrets from Seal servers.
 
 This delegation is secure because the Seal responses are encrypted under the enclave's encryption key, so only the enclave can later decrypt the fetched Seal responses. The public keys of the Seal servers in `seal_config.yaml` are defined by the admin in the enclave, so the enclave can verify the decrypted Seal key is not tampered with.
 
@@ -71,10 +71,10 @@ This delegation is secure because the Seal responses are encrypted under the enc
 
 ### Step 0: Build, Run and Register Enclave
 
-This is largely the as the main Nautilus template (Refer to the main guide `UsingNautilus.md` for 
+This is largely the as the main Nautilus template (Refer to the main guide `UsingNautilus.md` for
 more detailed instructions) with two additions:
 
-1. Update `seal_config.yaml` used by the enclave. 
+1. Update `seal_config.yaml` used by the enclave.
 2. Record `ENCLAVE_OBJ_VERSION` in addition to `ENCLAVE_OBJECT_ID`.
 
 ```shell
@@ -82,17 +82,18 @@ more detailed instructions) with two additions:
 cd move/enclave
 sui move build && sui client publish
 
-# find this in output and set env var
-ENCLAVE_PACKAGE_ID=0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49
+
 
 # publish the seal-policy app package
 cd ../seal-policy
 sui move build && sui client publish
 
 # find these in output and set env vars
-CAP_OBJECT_ID=0xbd6ad872040eddc08f20ff11e20a3dc030c3e30f4ab2303a0c42447006724262
-ENCLAVE_CONFIG_OBJECT_ID=0x3ee612ffc17f29280b8479c36a1096a339e38c353a7662baa559ba4d879dd4de
-APP_PACKAGE_ID=0x7f0171b76f82cd61ebb4ac3fd502deac6552e9becd38be28d5692b69b5fdb54e
+# find this in output and set env var
+ENCLAVE_PACKAGE_ID=0x5114530c1fc03da3c502cc0036540464b94683af900ac788a47d76aa2adba856
+CAP_OBJECT_ID=0x15668c177c3c501ef9e0973ada36bda8995af1ba54ac5e5a266092eb830fbef3
+ENCLAVE_CONFIG_OBJECT_ID=0xc003830ab4e97cdbb743285c4ab8ffae7e37781c77aa41ea44e50a7286952629
+APP_PACKAGE_ID=0x5114530c1fc03da3c502cc0036540464b94683af900ac788a47d76aa2adba856
 
 # update seal_config.yaml with APP_PACKAGE_ID inside the enclave
 
@@ -104,14 +105,14 @@ make ENCLAVE_APP=seal-example && make run && sh expose_enclave.sh
 # find the pcrs and set env vars
 cat out/nitro.pcrs
 
-PCR0=84db3309c8a06c31c1c0a44701fb6c47766244925d7c1d32d5e6589cbdea23aa1f619cddc62c7368ffe648a07df2feb8
-PCR1=84db3309c8a06c31c1c0a44701fb6c47766244925d7c1d32d5e6589cbdea23aa1f619cddc62c7368ffe648a07df2feb8
+PCR0=9351ed1346270bea8cad40e261f4e9eb4c6a66d1e9964cfe24f94bc35ae2fd4e11132011cb7aa262bee2c74fe4cb3b66
+PCR1=9351ed1346270bea8cad40e261f4e9eb4c6a66d1e9964cfe24f94bc35ae2fd4e11132011cb7aa262bee2c74fe4cb3b66
 PCR2=21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a
 
 # populate name and url
-MODULE_NAME=weather
-OTW_NAME=WEATHER
-ENCLAVE_URL=http://<PUBLIC_IP>:3000
+MODULE_NAME=timeline
+OTW_NAME=TIMELINE
+ENCLAVE_URL=http://13.212.13.94:3000
 
 # update pcrs
 sui client call --function update_pcrs --module enclave --package $ENCLAVE_PACKAGE_ID --type-args "$APP_PACKAGE_ID::$MODULE_NAME::$OTW_NAME" --args $ENCLAVE_CONFIG_OBJECT_ID $CAP_OBJECT_ID 0x$PCR0 0x$PCR1 0x$PCR2
@@ -119,15 +120,15 @@ sui client call --function update_pcrs --module enclave --package $ENCLAVE_PACKA
 # optional, update name
 sui client call --function update_name --module enclave --package $ENCLAVE_PACKAGE_ID --type-args "$APP_PACKAGE_ID::$MODULE_NAME::$OTW_NAME" --args $ENCLAVE_CONFIG_OBJECT_ID $CAP_OBJECT_ID "some name here"
 
-# register the enclave onchain 
+# register the enclave onchain
 sh register_enclave.sh $ENCLAVE_PACKAGE_ID $APP_PACKAGE_ID $ENCLAVE_CONFIG_OBJECT_ID $ENCLAVE_URL $MODULE_NAME $OTW_NAME
 
-# read from output the created enclave obj id and finds its initial shared version 
+# read from output the created enclave obj id and finds its initial shared version
 ENCLAVE_OBJECT_ID=0x9b8bc44069abc9843bbd2f54b4e7732136cc7c615c34959f98ab2f7c74f002bd
 ENCLAVE_OBJ_VERSION=722158400
 ```
 
-Currently, the enclave is running but has no `SEAL_API_KEY` and cannot process requests. 
+Currently, the enclave is running but has no `SEAL_API_KEY` and cannot process requests.
 
 ```bash
 curl -H 'Content-Type: application/json' -d '{"payload": { "location": "San Francisco"}}' -X POST http://<PUBLIC_IP>:3000/process_data
@@ -139,13 +140,13 @@ curl -H 'Content-Type: application/json' -d '{"payload": { "location": "San Fran
 
 The Seal CLI command can be ran in the root directory of [Seal repo](https://github.com/MystenLabs/seal). This step can be done anywhere where the secret value is secure. The output is later used for step 4.
 
-This command looks up the public keys of the specified key servers ID using public fullnode on the given network. Then it uses the identity `id`, threshold `t`, the specified key servers `-k` and the policy package `-p` to encrypt the secret. 
+This command looks up the public keys of the specified key servers ID using public fullnode on the given network. Then it uses the identity `id`, threshold `t`, the specified key servers `-k` and the policy package `-p` to encrypt the secret.
 
 ```bash
 # in seal repo
 # set package id from step 0
 APP_PACKAGE_ID=0x2080f9c370ddb22c48d6377f8aa64883c3a1c61d3febbcc18b6bf70553ae45a0
-cargo run --bin seal-cli encrypt --secret 303435613237383132646265343536333932393133323233323231333036 \
+cargo run --bin seal-cli encrypt --secret 736b2d6f722d76312d36343032396138663337626639643839386663353463343565303931303866313632333739343531303263306231346166306664346333376661326433313535 \
     --id 0x00 \
     -p $APP_PACKAGE_ID \
     -t 2 \
@@ -156,14 +157,14 @@ Encrypted object:
 <ENCRYPTED_OBJECT>
 ```
 
-`--secret`: The secret value you are encrypting in Hex format. Only the enclave has access to decrypt it. Here we use an example value for  `weather-api-key` converted from UTF-8 to Hex:
+`--secret`: The secret value you are encrypting in Hex format. Only the enclave has access to decrypt it. Here we use an example value for `weather-api-key` converted from UTF-8 to Hex:
 
 ```python
 >>> '045a27812dbe456392913223221306'.encode('utf-8').hex()
 '303435613237383132646265343536333932393133323233323231333036'
 ```
 
-`--id`: A fixed value of 0x00. This is the identity used to encrypt any data to the enclave. 
+`--id`: A fixed value of 0x00. This is the identity used to encrypt any data to the enclave.
 `-p`: The package ID containing the Seal policy (the APP_PACKAGE_ID from Step 0).
 `-k`: A list of key server object ids. Here we use the two Mysten open testnet servers.
 `-t`: Threshold used for encryption.
@@ -193,7 +194,7 @@ This command parses the Hex encoded BCS serialized `FetchKeyRequest` and fetches
 
 ```bash
 # in seal repo
-cargo run --bin seal-cli fetch-keys --request <FETCH_KEY_REQUEST> \
+cargo run --bin seal-cli fetch-keys --request cc0242514143415141415155432f47546c464e6350766a61496e66477a596f4e4d34494136335172696677716b776e6551426e43534e5a507a347a684f2b2b705a74377479673964616c4354706d6c67382b446b7346493876734e48373445704149414345674e423767374e416a426d5978775167622b694d63584b43593476612f6a55744466772b30587747364438454143485163594d2b6241514141415145387551326e714d4332633475634f6f332f765474547a2f433145774e5a74444e74494b6536623733573574516d7743734141414141414145416c7a566f476533684d74752b616d62744f79594f4863686f6f566843654f6a7666414377774d58594852634f633256686246393361476c305a5778706333515663325668624639686348427962335a6c5832567559327868646d567a41415542414141424151414241674142417741424241413d8a7b88289777ef8610bd97cc3b4a8d02a4f9bb598187ad5a02ac591b993dd0fd7ae64c4b82635c8708ebd9fdaac5bead8a7ebceede6da7f41e9229f51d0499f67b2e56cf567ee112f2ab1c3f287abaa5af5cb8940013acc3b1bc584167da97ad0c3dc7fd7f799a5a6d285ebe876baaeffa9f24ba6ef07f0d2a79b6f25f30bf288d4a812e0e1a2569261ceea26e8822cdafdbc9cce39865eb21843ed5a88bef66001a21bb499fc74b22488a47f7411682014b1cfce1467d888b68cc975a3e671f37b59c4e9379a2c58f7d639194fa0503b190d92e2913382efc03bfd4228082b0eaa85a7a2863be64e15b64a20095eaf451ffdb3cc0add92f26dd5264280077240b335d51b7a2d5aab3f1930343dce003741c60cf9b0100001e00610049eeab90dad39716402b1c8c454728add21b732a427781bac6269e4bc21612650eaf97db387e52e15a4243bd812f490af39f971925e09ddee0fa1b191406c60a341ee0ecd023066631c1081bfa231c5ca098e2f6bf8d4b437f0fb45f01ba0fc100 \
     -k 0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75,0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8 \
     -t 2 \
     -n testnet
@@ -202,9 +203,9 @@ Encoded seal responses:
 <ENCODED_SEAL_RESPONSES>
 ```
 
-`--request`: Output of step 2. 
-`-k`: A list of key server object ids, here we use the two Mysten open testnet servers. 
-`-t`: Threshold used for encryption. 
+`--request`: Output of step 2.
+`-k`: A list of key server object ids, here we use the two Mysten open testnet servers.
+`-t`: Threshold used for encryption.
 `-n`: The network of the key servers you are using.
 
 ### Step 4: Complete Key Load
@@ -215,7 +216,7 @@ This step is done in the host that the enclave runs in, that can communicate to 
 curl -X POST http://localhost:3001/admin/complete_seal_key_load \
   -H "Content-Type: application/json" \
   -d '{
-    "seal_responses": "<ENCODED_SEAL_RESPONSES>"
+    "seal_responses": "0273d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75012197356819ede132dbbe6a66ed3b260e1dc868a1584278e8ef7c00b0c0c5d81d1700adef9019646ce4c13b3c5bfe7b7c567f4aaee424f892a49559f8d6554e3affb0dd85379d9601d4ebfe7f926d19ab29508b7d4b1f4867d6f72b8c3a9040c40a8d71c6d0745a2b6b6c30c227c2665e36a5f87cd4093dd573574c90c0cbe851743ef5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8012197356819ede132dbbe6a66ed3b260e1dc868a1584278e8ef7c00b0c0c5d81d170089a507b808f01dfa4d27de2349c1ce1f35cb5bfac225ce98668d0e1bb18ad25b212f9e11352cae465773b11552a6236f838648bc1aab7f014899daf76be3c7b47e53283316569830c3b5bb32a94c0d7009144e5380a99dc7e80175b3f0111cb5"
   }'
 
 # Expected response:
@@ -226,13 +227,13 @@ curl -X POST http://localhost:3001/admin/complete_seal_key_load \
 
 This step is done in the host that the enclave runs in, that can communicate to the enclave via port 3001. Replace `<ENCRYPTED_OBJECT>` with the output from Step 1.
 
-In this call, the enclave uses the cached keys from Step 4 to decrypt the encrypted weather API key. This endpoint is application specific and replace or add more if needed. Repeat step 1 to encrypt other data using ID value 0 and provision them to the enclave with an endpoint. 
+In this call, the enclave uses the cached keys from Step 4 to decrypt the encrypted weather API key. This endpoint is application specific and replace or add more if needed. Repeat step 1 to encrypt other data using ID value 0 and provision them to the enclave with an endpoint.
 
 ```bash
-curl -X POST http://localhost:3001/admin/provision_weather_api_key \
+curl -X POST http://localhost:3001/admin/provision_openrouter_api_key \
   -H "Content-Type: application/json" \
   -d '{
-    "encrypted_object": "<ENCRYPTED_OBJECT>"
+    "encrypted_object": "0097356819ede132dbbe6a66ed3b260e1dc868a1584278e8ef7c00b0c0c5d81d1701000273d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db7501f5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8020200844b9fbff611cc5b52cde3a1be7a46b516538dcf4675781f9b195cc8307070e36e56d0a9e2aeb87ead4ecc87d9844e540eb3a8164cdb2733758b047eb9205bb71454f8c650ca0c9ffb19aa65fd4aa4fcf4590dee357eb154d7ca579dd223a40a02b6b79aa564bca396e3d9cf736fb02f70233524d2e2d6396579b4861d57a3b4b3f480c34c0c90d387a76429fbad9e45374e9400561e72fbc40db512080384fdb1de53dcb363ecbdca4a042d69556e5d4ec0b1d44f581bc555685a0ece7d690a450059648053ab4f6c2d2e4339e122931719d5829dbf42a1e9fc001642825b931e3b246bd8d4a9a22be05ae62040ee8de865fe8dcc6081f571690ca572edf2b4a44e61f6e228fd9cbf7baab2a90996dbfa5cffafac38a76ce1c7fe6e00"
   }'
 
 # Expected response:
@@ -241,12 +242,12 @@ curl -X POST http://localhost:3001/admin/provision_weather_api_key \
 
 ### Step 6: Use the Service
 
-Now the enclave server is fully functional to process data. 
+Now the enclave server is fully functional to process data.
 
 ```bash
 curl -H 'Content-Type: application/json' -d '{"payload": { "location": "San Francisco"}}' -X POST http://<PUBLIC_IP>:3000/process_data
 
-# Example response: 
+# Example response:
 {"response":{"intent":0,"timestamp_ms":1755805500000,"data":{"location":"San Francisco","temperature":18}},"signature":"4587c11eafe8e78c766c745c9f89b3bb7fd1a914d6381921e8d7d9822ddc9556966932df1c037e23bedc21f369f6edc66c1b8af019778eb6b1ec1ee7f324e801"}
 ```
 
@@ -256,7 +257,7 @@ Since Seal uses public key encryption, one can encrypt many secrets using the sa
 
 Run steps 2-4 once to cache the Seal keys for the enclave.
 
-Once keys are cached, decrypt any encrypted object by implementing one or more provision endpoints similar to step 5. 
+Once keys are cached, decrypt any encrypted object by implementing one or more provision endpoints similar to step 5.
 
 ## Multiple Enclaves
 

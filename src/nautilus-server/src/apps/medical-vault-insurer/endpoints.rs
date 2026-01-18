@@ -17,10 +17,7 @@ use fastcrypto::groups::bls12381::G1Element;
 use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
 use rand::thread_rng;
 use seal_sdk::types::{ElGamalPublicKey, ElgamalVerificationKey, FetchKeyRequest};
-use seal_sdk::{
-    decrypt_seal_responses, genkey, seal_decrypt_object, signed_message, signed_request,
-    Certificate, ElGamalSecretKey,
-};
+use seal_sdk::{decrypt_seal_responses, genkey, seal_decrypt_object, signed_message, signed_request, Certificate, ElGamalSecretKey};
 use sui_crypto::ed25519::Ed25519PrivateKey;
 use sui_sdk_types::{
     Address, Argument, Command, Identifier, Input, MoveCall, PersonalMessage,
@@ -204,7 +201,6 @@ pub async fn provision_openrouter_api_key(
         status: "OK".to_string(),
     }))
 }
-
 /// Signing payload struct that matches Move contract's struct EnclavePK. Signed by enclave ephemeral
 /// keypair.
 #[derive(serde::Serialize, Debug)]
@@ -233,7 +229,7 @@ pub async fn create_ptb(
     let signing_payload = EnclavePKPayload {
         pk: wallet_pk.clone(),
     };
-    let intent_msg = IntentMessage::new(signing_payload, timestamp, IntentScope::WalletPK as u8);
+    let intent_msg = IntentMessage::new(signing_payload, timestamp, 1); // 1 = WalletPK intent for seal_approve_enclaves
 
     // Sign with enclave ephemeral keypair.
     let signing_bytes = bcs::to_bytes(&intent_msg)?;
@@ -300,7 +296,7 @@ pub async fn spawn_host_init_server(state: Arc<AppState>) -> Result<(), EnclaveE
         )
         .with_state(state);
 
-    let host_listener = TcpListener::bind("0.0.0.0:3001")
+    let host_listener = TcpListener::bind("127.0.0.1:3001")
         .await
         .map_err(|e| EnclaveError::GenericError(format!("Failed to bind host init server: {e}")))?;
 
